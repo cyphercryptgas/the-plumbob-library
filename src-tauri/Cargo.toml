@@ -1,0 +1,29 @@
+[package]
+name = "plumbob-library"
+version = "0.1.0"
+description = "A safer home for your Sims 4 mods and custom content."
+edition = "2021"
+publish = false
+
+# This crate compiles in CI (up-to-date stable Rust + platform webview
+# toolchains), not in constrained build containers. All filesystem and
+# database logic lives in ../core, which IS unit-tested everywhere — this
+# crate is deliberately a thin, typed command boundary.
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+plumbob-core = { path = "../core" }
+# Game-process detection ("refuse to mutate while The Sims 4 runs").
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
+# Windows-friendly canonicalization (strips \\?\ prefixes) for path gating.
+dunce = "1"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

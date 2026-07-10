@@ -1,0 +1,32 @@
+[package]
+name = "plumbob-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+description = "Filesystem-safety core for The Plumbob Library: path containment, scanning, streaming hashes, exact duplicate detection, quarantine, snapshots, and operation journaling. No Tauri dependency — testable on any platform and a conservative toolchain."
+
+# This crate is deliberately a standalone Cargo root (not a workspace member
+# of src-tauri). The Tauri shell requires a newer toolchain than some build
+# environments provide; keeping the safety core independent means its test
+# suite runs everywhere — Linux containers, Windows CI runners, developer
+# machines — regardless of the Tauri dependency graph.
+
+[dependencies]
+sha2 = "0.10"
+walkdir = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+dunce = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+# Pinned to 0.31: newer rusqlite releases raise the minimum toolchain past
+# what conservative environments (distro Rust 1.75) can parse. Bundled SQLite
+# keeps the database identical on every platform, including Windows CI.
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+[dev-dependencies]
+# default-features off: tempfile's optional `getrandom` feature resolves to an
+# edition-2024 crate that conservative toolchains (e.g. distro Rust 1.75)
+# cannot parse. Tempdir naming falls back to fastrand, which is fine for tests.
+tempfile = { version = "3", default-features = false }

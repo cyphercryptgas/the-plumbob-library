@@ -1,0 +1,518 @@
+//! Orchestration between the Tauri command boundary and the tested core.
+//! Every mutating flow follows the safety contract: game-closed guard →
+//! plan from database truth → recovery snapshot → hash-verified execution →
+//! journal → record → event. All heavy work runs on blocking threads (see
+//! commands.rs); the database mutex intentionally serializes mutations.
+
+use plumbob_core::db::{self, settings::AppSettings, Database};
+use plumbob_core::duplicates;
+use plumbob_core::hashing;
+use plumbob_core::ops::{self, QuarantineRequest, SnapshotEntry};
+use plumbob_core::paths::SafeRoot;
+use plumbob_core::scan::{self, ScanOptions};
+use serde::Serialize;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, MutexGuard};
+use tauri::{AppHandle, Emitter};
+
+pub type UiResult<T> = Result<T, String>;
+
+pub fn err_str<E: std::fmt::Display>(e: E) -> String {
+    e.to_string()
+}
+
+pub fn lock_db(db: &Mutex<Database>) -> UiResult<MutexGuard<'_, Database>> {
+    db.lock()
+        .map_err(|_| "Internal error: the database lock was poisoned.".to_string())
+}
+
+pub const MSG_NO_MODS_FOLDER: &str =
+    "No Mods folder is configured yet. Choose your Sims 4 Mods folder first.";
+
+pub fn ensure_game_closed() -> UiResult<()> {
+    if crate::game::sims_running() {
+        Err("The Sims 4 appears to be running. Close the game before changing \
+             anything in the Mods folder — moving files the game holds open can \
+             corrupt a session."
+            .to_string())
+    } else {
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Roots
+// ---------------------------------------------------------------------------
+
+pub struct Roots {
+    pub mods: SafeRoot,
+    pub quarantine: SafeRoot,
+    pub backups: SafeRoot,
+    pub settings: AppSettings,
+}
+
+/// Resolve the three working roots from settings, creating the app-owned
+/// folders if needed. Backup/quarantine inside the Mods folder is refused —
+/// the scanner would churn on them and quarantine could "quarantine itself".
+pub fn resolve_roots(dbase: &Database, data_dir: &Path) -> UiResult<Roots> {
+    let settings = db::settings::load(dbase.conn()).map_err(err_str)?;
+    let mods_path = settings
+        .mods_folder
+        .clone()
+        .ok_or_else(|| MSG_NO_MODS_FOLDER.to_string())?;
+    let mods = SafeRoot::new(&mods_path)
+        .map_err(|e| format!("The configured Mods folder can't be opened: {e}"))?;
+
+    let quarantine_path = settings
+        .quarantine_folder
+        .clone()
+        .unwrap_or_else(|| data_dir.join("Quarantine"));
+    let backup_path = settings
+        .backup_folder
+        .clone()
+        .unwrap_or_else(|| data_dir.join("Backups"));
+    std::fs::create_dir_all(&quarantine_path)
+        .map_err(|e| format!("Could not prepare the quarantine folder: {e}"))?;
+    std::fs::create_dir_all(&backup_path)
+        .map_err(|e| format!("Could not prepare the backup folder: {e}"))?;
+
+    let quarantine = SafeRoot::new(&quarantine_path).map_err(err_str)?;
+    let backups = SafeRoot::new(&backup_path).map_err(err_str)?;
+    if quarantine.path().starts_with(mods.path()) || backups.path().starts_with(mods.path()) {
+        return Err(
+            "Backup and quarantine folders can't live inside the Mods folder itself."
+                .to_string(),
+        );
+    }
+    Ok(Roots {
+        mods,
+        quarantine,
+        backups,
+        settings,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Scan pipeline
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanProgressEvent {
+    pub phase: &'static str,
+    pub files_seen: u64,
+    pub bytes_seen: u64,
+    pub hashed: usize,
+    pub to_hash: usize,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanOutcome {
+    pub scan_id: i64,
+    pub new_files: usize,
+    pub changed_files: usize,
+    pub unchanged_files: usize,
+    pub missing_files: usize,
+    pub reappeared_files: usize,
+    pub hashed_files: usize,
+    pub hash_errors: usize,
+    pub duplicate_groups: usize,
+    pub scan_errors: usize,
+    pub cancelled: bool,
+    pub duration_ms: u64,
+}
+
+/// Scan → reconcile → hash → refresh duplicate groups, emitting
+/// `scan://progress` along the way and `scan://completed` at the end.
+/// The database lock is held only for the short write phases, never during
+/// the filesystem walk or hashing.
+pub fn run_scan_pipeline(
+    app: &AppHandle,
+    dbm: &Mutex<Database>,
+    data_dir: &Path,
+    scan_type: &str,
+    cancel: &AtomicBool,
+) -> UiResult<ScanOutcome> {
+    let started = std::time::Instant::now();
+    let roots = {
+        let guard = lock_db(dbm)?;
+        resolve_roots(&guard, data_dir)?
+    };
+    let opts = ScanOptions {
+        excluded_relative: roots.settings.scan_excluded.clone(),
+        script_depth_limit: roots.settings.script_depth_limit,
+    };
+
+    let mut tick: u64 = 0;
+    let report = scan::scan(&roots.mods, &opts, cancel, |p| {
+        tick += 1;
+        if tick % 50 == 0 {
+            let _ = app.emit(
+                "scan://progress",
+                ScanProgressEvent {
+                    phase: "scanning",
+                    files_seen: p.files_seen,
+                    bytes_seen: p.bytes_seen,
+                    hashed: 0,
+                    to_hash: 0,
+                },
+            );
+        }
+    });
+    let scan_errors = report.errors.len();
+    let cancelled_walk = report.cancelled;
+
+    let summary = {
+        let mut guard = lock_db(dbm)?;
+        db::files::reconcile_scan(guard.conn_mut(), &report, scan_type, &opts.excluded_relative)
+            .map_err(err_str)?
+    };
+
+    // Hash pass. Content identity underpins duplicate detection and every
+    // verified operation, so new/changed files are always hashed.
+    let to_hash = summary.needs_hash.len();
+    let mut updates: Vec<(i64, String)> = Vec::with_capacity(to_hash);
+    let mut hash_errors = 0usize;
+    for (i, (id, abs)) in summary.needs_hash.iter().enumerate() {
+        if cancel.load(Ordering::Relaxed) {
+            break;
+        }
+        match hashing::sha256_file(abs) {
+            Ok(hash) => updates.push((*id, hash)),
+            Err(_) => hash_errors += 1,
+        }
+        if (i + 1) % 25 == 0 {
+            let _ = app.emit(
+                "scan://progress",
+                ScanProgressEvent {
+                    phase: "hashing",
+                    files_seen: report.files.len() as u64,
+                    bytes_seen: report.total_bytes,
+                    hashed: i + 1,
+                    to_hash,
+                },
+            );
+        }
+    }
+    let hashed_files = updates.len();
+    {
+        let mut guard = lock_db(dbm)?;
+        db::files::update_hashes(guard.conn_mut(), &updates).map_err(err_str)?;
+    }
+
+    let duplicate_groups = {
+        let mut guard = lock_db(dbm)?;
+        let facts = db::dupes::load_file_facts(guard.conn()).map_err(err_str)?;
+        let groups = duplicates::group_exact(&facts);
+        db::dupes::replace_exact_groups(guard.conn_mut(), &groups).map_err(err_str)?;
+        groups.len()
+    };
+
+    let outcome = ScanOutcome {
+        scan_id: summary.scan_id,
+        new_files: summary.new_files,
+        changed_files: summary.changed_files,
+        unchanged_files: summary.unchanged_files,
+        missing_files: summary.missing_files,
+        reappeared_files: summary.reappeared_files,
+        hashed_files,
+        hash_errors,
+        duplicate_groups,
+        scan_errors,
+        cancelled: cancelled_walk || cancel.load(Ordering::Relaxed),
+        duration_ms: started.elapsed().as_millis() as u64,
+    };
+    let _ = app.emit("scan://completed", outcome.clone());
+    Ok(outcome)
+}
+
+// ---------------------------------------------------------------------------
+// Quarantine
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuarantinePreview {
+    pub files: Vec<db::files::FileRow>,
+    pub total_bytes: i64,
+    pub files_without_hash: usize,
+    pub files_missing_on_disk: usize,
+}
+
+pub fn preview_quarantine(dbm: &Mutex<Database>, file_ids: &[i64]) -> UiResult<QuarantinePreview> {
+    let guard = lock_db(dbm)?;
+    let files = db::files::files_by_ids(guard.conn(), file_ids).map_err(err_str)?;
+    if files.len() != file_ids.len() {
+        return Err(
+            "Some selected files no longer exist in the library records. Re-scan and try again."
+                .to_string(),
+        );
+    }
+    let total_bytes = files.iter().map(|f| f.size_bytes).sum();
+    let files_without_hash = files.iter().filter(|f| f.sha256.is_none()).count();
+    let files_missing_on_disk = files.iter().filter(|f| f.missing).count();
+    Ok(QuarantinePreview {
+        files,
+        total_bytes,
+        files_without_hash,
+        files_missing_on_disk,
+    })
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FailedStep {
+    pub path: String,
+    pub message: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct QuarantineOutcomeDto {
+    pub operation_id: String,
+    pub backup_id: i64,
+    pub completed: usize,
+    pub failed: Vec<FailedStep>,
+    pub halted_early: bool,
+    pub reclaimed_bytes: i64,
+}
+
+/// Guard → snapshot (all-or-nothing) → hash-verified moves → records.
+/// The expected hash for every move comes from the database row, so a file
+/// that changed since the plan was made refuses to move (stale-plan
+/// protection) instead of silently quarantining unknown bytes.
+pub fn execute_quarantine(
+    app: &AppHandle,
+    dbm: &Mutex<Database>,
+    data_dir: &Path,
+    file_ids: &[i64],
+    reason: &str,
+    resolve_group_id: Option<i64>,
+) -> UiResult<QuarantineOutcomeDto> {
+    ensure_game_closed()?;
+    if file_ids.is_empty() {
+        return Err("Nothing selected to quarantine.".to_string());
+    }
+    let mut guard = lock_db(dbm)?;
+    let roots = resolve_roots(&guard, data_dir)?;
+    let rows = db::files::files_by_ids(guard.conn(), file_ids).map_err(err_str)?;
+    if rows.len() != file_ids.len() {
+        return Err(
+            "Some selected files no longer exist in the library records. Re-scan and try again."
+                .to_string(),
+        );
+    }
+    if rows.iter().any(|r| r.missing) {
+        return Err(
+            "A selected file is already missing on disk. Re-scan before quarantining."
+                .to_string(),
+        );
+    }
+    if rows.iter().any(|r| r.status == "quarantined") {
+        return Err("A selected file is already quarantined.".to_string());
+    }
+    let rels: Vec<PathBuf> = rows
+        .iter()
+        .map(|r| PathBuf::from(&r.relative_path))
+        .collect();
+
+    // 1) Recovery snapshot before anything moves.
+    let (snapshot_dir, manifest) = {
+        let mut journal = db::ops::SqliteJournal::new(guard.conn());
+        let result = ops::create_snapshot(
+            &roots.mods,
+            &roots.backups,
+            &rels,
+            &format!("Automatic backup before quarantine ({reason})"),
+            &mut journal,
+        );
+        journal.finish().map_err(err_str)?;
+        result.map_err(|e| format!("Backup failed, so nothing was quarantined: {e}"))?
+    };
+    let backup_id =
+        db::ops::record_snapshot(guard.conn_mut(), &manifest, &snapshot_dir).map_err(err_str)?;
+
+    // 2) Hash-verified moves.
+    let requests: Vec<QuarantineRequest> = rows
+        .iter()
+        .map(|r| QuarantineRequest {
+            source_relative: PathBuf::from(&r.relative_path),
+            reason: reason.to_string(),
+            expected_sha256: r.sha256.clone(),
+        })
+        .collect();
+    let outcome = {
+        let mut journal = db::ops::SqliteJournal::new(guard.conn());
+        let o = ops::quarantine_files(
+            &roots.mods,
+            &roots.quarantine,
+            &requests,
+            roots.settings.stop_on_error,
+            &mut journal,
+        );
+        journal.finish().map_err(err_str)?;
+        o
+    };
+    db::ops::record_quarantine_outcome(guard.conn_mut(), &outcome).map_err(err_str)?;
+
+    if let Some(group_id) = resolve_group_id {
+        if outcome.failed.is_empty() {
+            db::dupes::set_group_status(guard.conn(), group_id, "resolved").map_err(err_str)?;
+        }
+    }
+
+    let reclaimed_bytes: i64 = rows
+        .iter()
+        .filter(|r| {
+            outcome
+                .completed
+                .iter()
+                .any(|c| c.original_relative.as_path() == Path::new(&r.relative_path))
+        })
+        .map(|r| r.size_bytes)
+        .sum();
+    let dto = QuarantineOutcomeDto {
+        operation_id: outcome.operation_id.clone(),
+        backup_id,
+        completed: outcome.completed.len(),
+        failed: outcome
+            .failed
+            .iter()
+            .map(|f| FailedStep {
+                path: f.source.to_string_lossy().into_owned(),
+                message: f.message.clone(),
+            })
+            .collect(),
+        halted_early: outcome.halted_early,
+        reclaimed_bytes,
+    };
+    let _ = app.emit("library://changed", "quarantine");
+    Ok(dto)
+}
+
+/// Restore a quarantined file to its original relative path, hash-verified
+/// against what was recorded at quarantine time. Never overwrites.
+pub fn restore_quarantined_file(
+    app: &AppHandle,
+    dbm: &Mutex<Database>,
+    data_dir: &Path,
+    entry_id: i64,
+) -> UiResult<String> {
+    ensure_game_closed()?;
+    let mut guard = lock_db(dbm)?;
+    let roots = resolve_roots(&guard, data_dir)?;
+    let view = db::ops::quarantine_entry_by_id(guard.conn(), entry_id)
+        .map_err(err_str)?
+        .ok_or_else(|| "That quarantine entry no longer exists.".to_string())?;
+    if view.status != "quarantined" {
+        return Err("That file was already restored.".to_string());
+    }
+    let sha256 = view.sha256.clone().ok_or_else(|| {
+        "This entry has no recorded hash and can't be verified for safe restore.".to_string()
+    })?;
+    let entry = ops::QuarantineEntry {
+        original_relative: PathBuf::from(&view.original_path),
+        stored_absolute: PathBuf::from(&view.quarantine_path),
+        sha256,
+        reason: view.reason.clone(),
+    };
+    let restored = {
+        let mut journal = db::ops::SqliteJournal::new(guard.conn());
+        let result = ops::restore_quarantined(&roots.mods, &entry, &mut journal);
+        journal.finish().map_err(err_str)?;
+        result.map_err(err_str)?
+    };
+    db::ops::mark_quarantine_restored(guard.conn_mut(), entry_id).map_err(err_str)?;
+    let _ = app.emit("library://changed", "restore");
+    Ok(restored.to_string_lossy().into_owned())
+}
+
+/// Restore one file from a recorded backup. The stored copy is verified
+/// against the manifest hash before the live file is touched; overwriting
+/// requires an explicit flag from the interface.
+pub fn restore_backup_entry(
+    app: &AppHandle,
+    dbm: &Mutex<Database>,
+    data_dir: &Path,
+    backup_id: i64,
+    source_path: &str,
+    overwrite: bool,
+) -> UiResult<String> {
+    ensure_game_closed()?;
+    let guard = lock_db(dbm)?;
+    let roots = resolve_roots(&guard, data_dir)?;
+    let backup = db::ops::list_backups(guard.conn())
+        .map_err(err_str)?
+        .into_iter()
+        .find(|b| b.id == backup_id)
+        .ok_or_else(|| "That backup no longer exists in the records.".to_string())?;
+    let entry = db::ops::backup_entries(guard.conn(), backup_id)
+        .map_err(err_str)?
+        .into_iter()
+        .find(|e| e.source_path.eq_ignore_ascii_case(source_path))
+        .ok_or_else(|| "That file isn't part of the selected backup.".to_string())?;
+    let snap_entry = SnapshotEntry {
+        relative_path: PathBuf::from(&entry.source_path),
+        sha256: entry.sha256.clone(),
+        size_bytes: entry.size_bytes as u64,
+    };
+    let snapshot_dir = PathBuf::from(&backup.root_path);
+    let restored = {
+        let mut journal = db::ops::SqliteJournal::new(guard.conn());
+        let result = ops::restore_from_snapshot(
+            &roots.mods,
+            &snapshot_dir,
+            &snap_entry,
+            overwrite,
+            &mut journal,
+        );
+        journal.finish().map_err(err_str)?;
+        result.map_err(err_str)?
+    };
+    let _ = app.emit("library://changed", "backup-restore");
+    Ok(restored.to_string_lossy().into_owned())
+}
+
+// ---------------------------------------------------------------------------
+// Reveal in file manager (path-gated)
+// ---------------------------------------------------------------------------
+
+/// Open the system file manager with the item selected. Gated to paths
+/// inside the library, quarantine, backup, or app-data roots — the interface
+/// never gets a generic "open anything" primitive.
+pub fn reveal_in_explorer(dbm: &Mutex<Database>, data_dir: &Path, raw_path: &str) -> UiResult<()> {
+    let target = dunce::canonicalize(Path::new(raw_path))
+        .map_err(|e| format!("That path can't be opened: {e}"))?;
+    let mut allowed: Vec<PathBuf> = vec![data_dir.to_path_buf()];
+    if let Ok(guard) = dbm.lock() {
+        if let Ok(roots) = resolve_roots(&guard, data_dir) {
+            allowed.push(roots.mods.path().to_path_buf());
+            allowed.push(roots.quarantine.path().to_path_buf());
+            allowed.push(roots.backups.path().to_path_buf());
+        }
+    }
+    if !allowed.iter().any(|root| target.starts_with(root)) {
+        return Err(
+            "Only files inside the library, quarantine, backup, or app data folders can be revealed."
+                .to_string(),
+        );
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(format!("/select,{}", target.display()))
+            .spawn()
+            .map_err(err_str)?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let parent = target.parent().unwrap_or(&target);
+        std::process::Command::new("xdg-open")
+            .arg(parent)
+            .spawn()
+            .map_err(err_str)?;
+    }
+    Ok(())
+}

@@ -1,0 +1,178 @@
+/**
+ * Wire types for the typed command boundary. These mirror the Rust structs'
+ * serde output (camelCase) exactly — see core/src/db/*.rs and
+ * src-tauri/src/service.rs. If a field changes in Rust, it changes here.
+ */
+
+export interface AppInfo {
+  name: string;
+  tagline: string;
+  disclaimer: string;
+  version: string;
+  dataDir: string;
+  dbPath: string;
+}
+
+export interface AppSettings {
+  modsFolder: string | null;
+  dataFolder: string | null;
+  backupFolder: string | null;
+  quarantineFolder: string | null;
+  scanExcluded: string[];
+  scriptDepthLimit: number;
+  hashOnScan: boolean;
+  stopOnError: boolean;
+  theme: string;
+  reducedMotion: boolean;
+}
+
+export interface ModsFolderCheck {
+  exists: boolean;
+  isDirectory: boolean;
+  topLevelEntries: number;
+  hasResourceCfg: boolean;
+  hasSimsFiles: boolean;
+}
+
+export interface LibraryCounts {
+  totalFiles: number;
+  totalBytes: number;
+  missing: number;
+  zeroByte: number;
+  unsupported: number;
+  archives: number;
+  deepScripts: number;
+  packages: number;
+  scripts: number;
+  quarantined: number;
+}
+
+export interface FileRow {
+  id: number;
+  relativePath: string;
+  absolutePath: string;
+  currentFilename: string;
+  fileType: string;
+  sizeBytes: number;
+  sha256: string | null;
+  status: string;
+  missing: boolean;
+  zeroByte: boolean;
+  deepScript: boolean;
+  depth: number;
+  modifiedAtFs: string | null;
+  modId: number | null;
+}
+
+export interface DuplicateMemberView {
+  fileId: number;
+  relativePath: string;
+  sizeBytes: number;
+  modifiedAtFs: string | null;
+  recommended: boolean;
+}
+
+export interface DuplicateGroupView {
+  id: number;
+  sha256: string | null;
+  sizeBytes: number | null;
+  reclaimableBytes: number;
+  recommendedFileId: number | null;
+  recommendationReason: string | null;
+  members: DuplicateMemberView[];
+}
+
+export interface QuarantineView {
+  id: number;
+  fileId: number | null;
+  originalPath: string;
+  quarantinePath: string;
+  sha256: string | null;
+  reason: string;
+  quarantinedAt: string;
+  restoredAt: string | null;
+  status: string;
+}
+
+export interface OperationView {
+  id: number;
+  operationUid: string;
+  operationType: string;
+  status: string;
+  createdAt: string;
+  completedAt: string | null;
+  summary: string | null;
+  backupId: number | null;
+}
+
+export interface OperationStepView {
+  stepOrder: number;
+  action: string;
+  sourcePath: string;
+  destinationPath: string | null;
+  expectedHash: string | null;
+  status: string;
+  errorMessage: string | null;
+}
+
+export interface BackupView {
+  id: number;
+  createdAt: string;
+  reason: string;
+  rootPath: string;
+  status: string;
+  totalFiles: number;
+  totalBytes: number;
+  operationId: number | null;
+}
+
+export interface BackupEntryView {
+  sourcePath: string;
+  backupPath: string;
+  sha256: string;
+  sizeBytes: number;
+}
+
+export interface ScanProgressEvent {
+  phase: "scanning" | "hashing";
+  filesSeen: number;
+  bytesSeen: number;
+  hashed: number;
+  toHash: number;
+}
+
+export interface ScanOutcome {
+  scanId: number;
+  newFiles: number;
+  changedFiles: number;
+  unchangedFiles: number;
+  missingFiles: number;
+  reappearedFiles: number;
+  hashedFiles: number;
+  hashErrors: number;
+  duplicateGroups: number;
+  scanErrors: number;
+  cancelled: boolean;
+  durationMs: number;
+}
+
+export interface QuarantinePreview {
+  files: FileRow[];
+  totalBytes: number;
+  filesWithoutHash: number;
+  filesMissingOnDisk: number;
+}
+
+export interface FailedStep {
+  path: string;
+  message: string;
+}
+
+export interface QuarantineOutcomeDto {
+  operationId: string;
+  backupId: number;
+  completed: number;
+  failed: FailedStep[];
+  haltedEarly: boolean;
+  reclaimedBytes: number;
+}

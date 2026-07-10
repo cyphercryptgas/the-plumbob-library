@@ -1,0 +1,104 @@
+/**
+ * Typed wrappers for every shell command — the only place command names and
+ * argument shapes appear. Tauri maps these camelCase argument keys onto the
+ * Rust snake_case parameters.
+ */
+import { call } from "./tauri";
+import type {
+  AppInfo,
+  AppSettings,
+  BackupEntryView,
+  BackupView,
+  DuplicateGroupView,
+  FileRow,
+  LibraryCounts,
+  ModsFolderCheck,
+  OperationStepView,
+  OperationView,
+  QuarantineOutcomeDto,
+  QuarantinePreview,
+  QuarantineView,
+  ScanOutcome,
+} from "./types";
+
+// App identity & settings -----------------------------------------------
+
+export const appInfo = () => call<AppInfo>("app_info");
+export const getSettings = () => call<AppSettings>("get_settings");
+export const saveSettings = (settings: AppSettings) =>
+  call<void>("save_settings", { settings });
+
+// Onboarding helpers -----------------------------------------------------
+
+export const detectModsFolder = () =>
+  call<string | null>("detect_mods_folder");
+export const validateModsFolder = (path: string) =>
+  call<ModsFolderCheck>("validate_mods_folder", { path });
+export const gameRunning = () => call<boolean>("game_running");
+
+// Scan lifecycle ---------------------------------------------------------
+
+export const startScan = (scanType?: string) =>
+  call<ScanOutcome>("start_scan", { scanType: scanType ?? null });
+export const cancelScan = () => call<void>("cancel_scan");
+
+// Library queries --------------------------------------------------------
+
+export const getLibraryCounts = () =>
+  call<LibraryCounts>("get_library_counts");
+export const listFiles = (options?: {
+  search?: string;
+  limit?: number;
+  offset?: number;
+}) =>
+  call<FileRow[]>("list_files", {
+    search: options?.search ?? null,
+    limit: options?.limit ?? null,
+    offset: options?.offset ?? null,
+  });
+export const listDuplicateGroups = () =>
+  call<DuplicateGroupView[]>("list_duplicate_groups");
+export const setDuplicateGroupStatus = (
+  groupId: number,
+  status: "open" | "resolved" | "dismissed"
+) => call<void>("set_duplicate_group_status", { groupId, status });
+
+// Quarantine & restore ----------------------------------------------------
+
+export const previewQuarantine = (fileIds: number[]) =>
+  call<QuarantinePreview>("preview_quarantine", { fileIds });
+export const executeQuarantine = (
+  fileIds: number[],
+  reason: string,
+  resolveGroupId?: number
+) =>
+  call<QuarantineOutcomeDto>("execute_quarantine", {
+    fileIds,
+    reason,
+    resolveGroupId: resolveGroupId ?? null,
+  });
+export const restoreQuarantinedFile = (entryId: number) =>
+  call<string>("restore_quarantined_file", { entryId });
+export const listQuarantine = (includeRestored = false) =>
+  call<QuarantineView[]>("list_quarantine", { includeRestored });
+
+// Backups & activity -------------------------------------------------------
+
+export const listBackups = () => call<BackupView[]>("list_backups");
+export const listBackupEntries = (backupId: number) =>
+  call<BackupEntryView[]>("list_backup_entries", { backupId });
+export const restoreBackupEntry = (
+  backupId: number,
+  sourcePath: string,
+  overwrite = false
+) =>
+  call<string>("restore_backup_entry", { backupId, sourcePath, overwrite });
+export const listOperations = (limit?: number) =>
+  call<OperationView[]>("list_operations", { limit: limit ?? null });
+export const listOperationSteps = (operationRowId: number) =>
+  call<OperationStepView[]>("list_operation_steps", { operationRowId });
+
+// Reveal -------------------------------------------------------------------
+
+export const revealInExplorer = (path: string) =>
+  call<void>("reveal_in_explorer", { path });
