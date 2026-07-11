@@ -18,9 +18,15 @@ export function Card(props: { children: ReactNode; className?: string }) {
 export function SectionTitle(props: { children: ReactNode; hint?: string }) {
   return (
     <div className="mb-3">
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-sage-deep">
-        {props.children}
-      </h2>
+      <div className="flex items-center gap-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-sage-deep">
+          {props.children}
+        </h2>
+        <span
+          aria-hidden="true"
+          className="h-px flex-1 bg-gradient-to-r from-gold/50 to-transparent"
+        />
+      </div>
       {props.hint ? (
         <p className="mt-0.5 text-xs text-ink-muted">{props.hint}</p>
       ) : null}
@@ -32,7 +38,7 @@ type ButtonVariant = "primary" | "soft" | "quiet" | "danger";
 
 const buttonStyles: Record<ButtonVariant, string> = {
   primary:
-    "bg-sage text-white hover:bg-sage-deep disabled:bg-border-strong disabled:text-ink-muted",
+    "bg-sage text-white shadow-[0_5px_14px_rgba(20,80,58,0.24)] hover:bg-sage-deep hover:shadow-[0_6px_16px_rgba(20,80,58,0.32)] disabled:bg-border-strong disabled:text-ink-muted disabled:shadow-none",
   soft: "bg-sage-soft text-sage-deep hover:bg-sage hover:text-white disabled:opacity-50",
   quiet:
     "bg-transparent text-ink-secondary hover:bg-soft disabled:opacity-50",
@@ -194,10 +200,18 @@ export function EmptyState(props: { title: string; body: string; children?: Reac
   );
 }
 
-export function Stat(props: { label: string; value: string; sub?: string }) {
+export function Stat(props: {
+  label: string;
+  value: string;
+  sub?: string;
+  icon?: IconName;
+}) {
   return (
-    <div className="rounded-card bg-soft px-4 py-3">
-      <div className="text-xs font-medium uppercase tracking-wide text-ink-muted">
+    <div className="rounded-card border border-border-subtle bg-surface px-4 py-3 shadow-card">
+      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-ink-muted">
+        {props.icon ? (
+          <Icon name={props.icon} size={15} className="text-gold-deep" />
+        ) : null}
         {props.label}
       </div>
       <div className="mt-0.5 text-xl font-semibold text-ink">{props.value}</div>
@@ -216,7 +230,7 @@ export function PlumbobMark(props: { size?: number }) {
       height={s}
       alt=""
       aria-hidden="true"
-      className="shrink-0 rounded-lg"
+      className="shrink-0 drop-shadow-[0_3px_12px_rgba(52,199,123,0.35)]"
     />
   );
 }
@@ -253,6 +267,184 @@ export function Modal(props: {
         </div>
         {props.children}
       </div>
+    </div>
+  );
+}
+
+export type IconName =
+  | "dashboard" | "library" | "duplicates" | "conflicts" | "quarantine"
+  | "backups" | "activity" | "settings" | "calendar" | "profiles"
+  | "file" | "database" | "package" | "code" | "archive" | "alert"
+  | "lock" | "help" | "sparkle";
+
+const ICON_PATHS: Record<IconName, ReactNode> = {
+  dashboard: (
+    <>
+      <path d="M4 14a8 8 0 0 1 16 0" />
+      <path d="M12 14l3.5-3.5" />
+      <path d="M4.5 18h15" />
+    </>
+  ),
+  library: (
+    <>
+      <path d="M4 8l8-4 8 4-8 4-8-4z" />
+      <path d="M4 12l8 4 8-4" />
+      <path d="M4 16l8 4 8-4" />
+    </>
+  ),
+  duplicates: (
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+    </>
+  ),
+  conflicts: <path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" />,
+  quarantine: <path d="M12 3l7 3v5c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6l7-3z" />,
+  backups: (
+    <>
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+      <path d="M10 12h4" />
+    </>
+  ),
+  activity: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </>
+  ),
+  settings: (
+    <>
+      <path d="M4 6h16M4 12h16M4 18h16" />
+      <circle cx="14" cy="6" r="1.9" fill="var(--background-sidebar)" />
+      <circle cx="8" cy="12" r="1.9" fill="var(--background-sidebar)" />
+      <circle cx="16" cy="18" r="1.9" fill="var(--background-sidebar)" />
+    </>
+  ),
+  calendar: (
+    <>
+      <rect x="4" y="5" width="16" height="16" rx="2" />
+      <path d="M4 10h16M8 3v4M16 3v4" />
+    </>
+  ),
+  profiles: (
+    <>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" />
+      <path d="M16.5 6.9a2.6 2.6 0 1 1 0 4.6M21 20c0-2.5-1.6-4.7-3.8-5.5" />
+    </>
+  ),
+  file: (
+    <>
+      <path d="M6 3h8l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" />
+      <path d="M14 3v5h5" />
+    </>
+  ),
+  database: (
+    <>
+      <ellipse cx="12" cy="5.5" rx="7.5" ry="3" />
+      <path d="M4.5 5.5v13c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-13" />
+      <path d="M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3" />
+    </>
+  ),
+  package: (
+    <>
+      <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z" />
+      <path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" />
+    </>
+  ),
+  code: <path d="M8 8l-4 4 4 4M16 8l4 4-4 4" />,
+  archive: (
+    <>
+      <path d="M4 7l8-4 8 4v10l-8 4-8-4V7z" />
+      <path d="M4 7l8 4 8-4M12 11v10" />
+    </>
+  ),
+  alert: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 8v5M12 16.5h.01" />
+    </>
+  ),
+  lock: (
+    <>
+      <rect x="6" y="11" width="12" height="9" rx="2" />
+      <path d="M8.5 11V8a3.5 3.5 0 0 1 7 0v3" />
+    </>
+  ),
+  help: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M9.6 9.4a2.5 2.5 0 1 1 3.3 2.4c-.8.3-1.4.9-1.4 1.7v.4M11.5 16.8h.01" />
+    </>
+  ),
+  sparkle: (
+    <path
+      d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"
+      fill="currentColor"
+      stroke="none"
+    />
+  ),
+};
+
+/** Hand-drawn line icon set in the Motherlode style — thin strokes, gold
+ * where accents apply. Decorative by default. */
+export function Icon(props: {
+  name: IconName;
+  size?: number;
+  className?: string;
+}) {
+  const s = props.size ?? 18;
+  return (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.7}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={`shrink-0 ${props.className ?? ""}`}
+    >
+      {ICON_PATHS[props.name]}
+    </svg>
+  );
+}
+
+function Flourish(props: { className?: string }) {
+  return (
+    <svg
+      width="46"
+      height="46"
+      viewBox="0 0 48 48"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.4}
+      strokeLinecap="round"
+      aria-hidden="true"
+      className={props.className}
+    >
+      <path d="M6 42 C6 16 16 6 42 6" />
+      <path d="M14 34 C14 20 20 14 34 14" strokeWidth={0.9} opacity={0.7} />
+      <circle cx="9" cy="39" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="39" cy="9" r="1.3" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/** The gilded frame around the content area — double hairline with corner
+ * flourishes, per the Motherlode design spec. Purely decorative. */
+export function OrnamentalFrame() {
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 text-gold/70">
+      <div className="absolute inset-2 rounded-[14px] border border-gold/40" />
+      <div className="absolute inset-[13px] rounded-[10px] border border-gold/20" />
+      <Flourish className="absolute left-1 top-1" />
+      <Flourish className="absolute right-1 top-1 rotate-90" />
+      <Flourish className="absolute bottom-1 right-1 rotate-180" />
+      <Flourish className="absolute bottom-1 left-1 -rotate-90" />
     </div>
   );
 }
