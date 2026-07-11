@@ -35,6 +35,13 @@ interface DuplicateSummary {
   reclaimableBytes: number;
 }
 
+interface ConflictSummary {
+  groups: number;
+  /** Gameplay-severity groups not flagged likely-intentional — the ones the
+   * sidebar and dashboard surface. */
+  needsLook: number;
+}
+
 interface AppContextValue {
   loading: boolean;
   /** Bumps whenever library data changes (scans, quarantines, restores) —
@@ -44,6 +51,7 @@ interface AppContextValue {
   settings: AppSettings | null;
   counts: LibraryCounts | null;
   duplicates: DuplicateSummary;
+  conflicts: ConflictSummary;
   isGameRunning: boolean;
   scan: ScanState;
   error: string | null;
@@ -73,6 +81,10 @@ export function AppProvider(props: { children: ReactNode }) {
     openGroups: 0,
     reclaimableBytes: 0,
   });
+  const [conflicts, setConflicts] = useState<ConflictSummary>({
+    groups: 0,
+    needsLook: 0,
+  });
   const [isGameRunning, setGameRunning] = useState(false);
   const [scan, setScan] = useState<ScanState>({
     running: false,
@@ -88,14 +100,21 @@ export function AppProvider(props: { children: ReactNode }) {
 
   const refreshCounts = useCallback(async () => {
     try {
-      const [nextCounts, groups] = await Promise.all([
+      const [nextCounts, groups, conflictGroups] = await Promise.all([
         api.getLibraryCounts(),
         api.listDuplicateGroups(),
+        api.listConflicts(),
       ]);
       setCounts(nextCounts);
       setDuplicates({
         openGroups: groups.length,
         reclaimableBytes: groups.reduce((sum, g) => sum + g.reclaimableBytes, 0),
+      });
+      setConflicts({
+        groups: conflictGroups.length,
+        needsLook: conflictGroups.filter(
+          (g) => g.severity === "gameplay" && !g.likelyIntentional
+        ).length,
       });
       setLibraryVersion((v) => v + 1);
     } catch (e) {
@@ -212,6 +231,7 @@ export function AppProvider(props: { children: ReactNode }) {
       settings,
       counts,
       duplicates,
+      conflicts,
       isGameRunning,
       scan,
       error,
@@ -230,6 +250,7 @@ export function AppProvider(props: { children: ReactNode }) {
       settings,
       counts,
       duplicates,
+      conflicts,
       isGameRunning,
       scan,
       error,
