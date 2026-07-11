@@ -11,9 +11,14 @@ planned, previewed, backed up, hash-verified, journaled, and reversible.
 > with or endorsed by Electronic Arts, Maxis, The Sims, Overwolf, CurseForge,
 > or individual mod creators.
 
-## Current status — plateau 6 of 6 (release candidate)
+## Current status — Phase 2 complete (package awareness)
 
-Honest state, matching [`docs/FEATURE_STATUS.md`](docs/FEATURE_STATUS.md):
+Honest state, matching [`docs/FEATURE_STATUS.md`](docs/FEATURE_STATUS.md).
+Phase 2 adds package awareness on top of the validated Phase 1 MVP: a
+read-only DBPF index parser, a content-keyed incremental parse pass inside
+every scan, a live **Conflicts** screen implementing a researched noise
+policy, a suspected-duplicates tier, and Library status filters. 118 core
+tests on Linux + Windows CI. Phase 1 state:
 
 * **Implemented and tested (92 tests, Linux + Windows CI):** the safety core
   and full SQLite layer — containment, scanner, hashing, duplicates,
