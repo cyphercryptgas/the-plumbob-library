@@ -211,6 +211,14 @@ pub struct ConflictGroup {
 
 const SAMPLE_KEYS: usize = 12;
 
+/// A key present in more distinct packages than this is boilerplate, not a
+/// collision: popular CC tools stamp a fixed-instance resource into every
+/// package they save, producing one shared key across hundreds of unrelated
+/// files (observed live: ~250 packages sharing a single unknown-type key).
+/// Real collisions involve a handful of packages. Ubiquitous keys are
+/// excluded, and the interface says so.
+const UBIQUITOUS_KEY_FILE_THRESHOLD: usize = 12;
+
 /// Group conflicting resource keys by the exact set of files sharing them.
 /// Two files overlapping on forty keys are one group with forty keys; a
 /// three-file overlap on a different key is its own group.
@@ -298,6 +306,11 @@ pub fn list_conflict_groups(conn: &Connection) -> Result<Vec<ConflictGroup>, DbE
         if distinct_hashes.len() < 2 {
             // Identical content everywhere (or unhashed): no in-game
             // difference — the Duplicates feature owns byte-identical files.
+            continue;
+        }
+        if members.len() > UBIQUITOUS_KEY_FILE_THRESHOLD {
+            // Tool-stamp boilerplate, not a collision (see the constant's
+            // documentation).
             continue;
         }
         let mut ids: Vec<i64> = members.iter().map(|m| m.file_id).collect();
@@ -693,6 +706,41 @@ mod tests {
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].severity, "presentation");
         assert!(groups[0].sample_keys[0].presentation_only);
+    }
+
+    #[test]
+    fn ubiquitous_keys_are_boilerplate_not_conflicts() {
+        // Regression (found in real-library validation): a fixed key stamped
+        // by CC tooling into many packages must not form a mega conflict
+        // group, while a genuine few-package collision on another key still
+        // surfaces.
+        let stamp = (0x545AC67Au32, 0, 0x5747_0000_0000_0001u64);
+        let mut packages: Vec<(String, Vec<(u32, u32, u64)>)> = (0..14)
+            .map(|i| {
+                (
+                    format!("Mods{i}/pkg{i}.package"),
+                    vec![stamp, (CASP, 0, 0x9000 + i as u64)],
+                )
+            })
+            .collect();
+        packages.push((
+            "RealA/a.package".into(),
+            vec![(TUNING, 0, 0xFEED), (CASP, 0, 0xA1)],
+        ));
+        packages.push((
+            "RealB/b.package".into(),
+            vec![(TUNING, 0, 0xFEED), (CASP, 0, 0xB2)],
+        ));
+        let refs: Vec<(&str, Vec<(u32, u32, u64)>)> = packages
+            .iter()
+            .map(|(rel, keys)| (rel.as_str(), keys.clone()))
+            .collect();
+        let (mut db, _dir, root) = pipeline_with(&refs, &[]);
+        parse_all(&mut db, &root);
+        let groups = list_conflict_groups(db.conn()).unwrap();
+        assert_eq!(groups.len(), 1, "only the genuine two-package collision");
+        assert_eq!(groups[0].members.len(), 2);
+        assert!(groups[0].members[0].relative_path.starts_with("RealA/"));
     }
 
     #[test]
