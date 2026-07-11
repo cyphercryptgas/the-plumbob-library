@@ -57,18 +57,19 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
         <Card>
           <SectionTitle>Your library</SectionTitle>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Stat label="Files" value={counts.totalFiles.toLocaleString()} />
-            <Stat label="Total size" value={formatBytes(counts.totalBytes)} />
-            <Stat label="Packages" value={counts.packages.toLocaleString()} />
-            <Stat label="Scripts" value={counts.scripts.toLocaleString()} />
+            <Stat icon="file" label="Files" value={counts.totalFiles.toLocaleString()} />
+            <Stat icon="database" label="Total size" value={formatBytes(counts.totalBytes)} />
+            <Stat icon="package" label="Packages" value={counts.packages.toLocaleString()} />
+            <Stat icon="code" label="Scripts" value={counts.scripts.toLocaleString()} />
             <Stat
+              icon="archive"
               label="Archives"
               value={counts.archives.toLocaleString()}
               sub="zip · rar · 7z"
             />
-            <Stat label="Unsupported" value={counts.unsupported.toLocaleString()} />
-            <Stat label="Quarantined" value={counts.quarantined.toLocaleString()} />
-            <Stat label="Missing" value={counts.missing.toLocaleString()} />
+            <Stat icon="alert" label="Unsupported" value={counts.unsupported.toLocaleString()} />
+            <Stat icon="lock" label="Quarantined" value={counts.quarantined.toLocaleString()} />
+            <Stat icon="help" label="Missing" value={counts.missing.toLocaleString()} />
           </div>
         </Card>
       ) : (
