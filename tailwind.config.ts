@@ -27,12 +27,21 @@ export default {
         ink: "var(--text-primary)",
         "ink-secondary": "var(--text-secondary)",
         "ink-muted": "var(--text-muted)",
+        gold: "var(--gold)",
+        "gold-deep": "var(--gold-deep)",
+        "sidebar-ink": "var(--sidebar-ink)",
+        "sidebar-ink-muted": "var(--sidebar-ink-muted)",
+        "sidebar-hover": "var(--sidebar-hover)",
+        "sidebar-active": "var(--sidebar-active)",
         "border-subtle": "var(--border-subtle)",
         "border-strong": "var(--border-strong)",
         success: "var(--success)",
         warning: "var(--warning)",
         danger: "var(--danger)",
         info: "var(--info)"
+      },
+      fontFamily: {
+        display: "var(--font-display)"
       },
       borderRadius: {
         card: "10px",
