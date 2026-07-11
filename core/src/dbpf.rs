@@ -263,13 +263,11 @@ fn u32le(bytes: &[u8], off: usize) -> u32 {
     u32::from_le_bytes([bytes[off], bytes[off + 1], bytes[off + 2], bytes[off + 3]])
 }
 
+/// Test-only synthetic package builder, shared with the database layer's
+/// tests so parse-pass and conflict tests run against real DBPF bytes.
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use std::path::PathBuf;
-
-    fn put32(out: &mut [u8], off: usize, v: u32) {
+pub mod testutil {
+    pub fn put32(out: &mut [u8], off: usize, v: u32) {
         out[off..off + 4].copy_from_slice(&v.to_le_bytes());
     }
 
@@ -277,10 +275,10 @@ mod tests {
         out.extend_from_slice(&v.to_le_bytes());
     }
 
-    /// Byte-exact synthetic package builder following the verified layout.
-    /// When a flag bit is set, the corresponding field must be uniform
-    /// across `keys` (asserted).
-    fn build_package(minor: u32, flags: u32, keys: &[(u32, u32, u64)]) -> Vec<u8> {
+    /// Byte-exact synthetic package following the verified layout. When a
+    /// flag bit is set, the corresponding field must be uniform across
+    /// `keys` (asserted).
+    pub fn build_package(minor: u32, flags: u32, keys: &[(u32, u32, u64)]) -> Vec<u8> {
         let const_type = flags & 0b001 != 0;
         let const_group = flags & 0b010 != 0;
         let const_hi = flags & 0b100 != 0;
@@ -334,6 +332,14 @@ mod tests {
         }
         out
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::testutil::{build_package, put32};
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
 
     fn write_temp(bytes: &[u8]) -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
