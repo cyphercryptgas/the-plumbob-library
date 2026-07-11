@@ -9,8 +9,10 @@ import type {
   AppSettings,
   BackupEntryView,
   BackupView,
+  ConflictGroup,
   DuplicateGroupView,
   FileRow,
+  LibraryFilter,
   LibraryCounts,
   ModsFolderCheck,
   OperationStepView,
@@ -19,6 +21,7 @@ import type {
   QuarantinePreview,
   QuarantineView,
   ScanOutcome,
+  SuspectedDuplicateGroup,
 } from "./types";
 
 // App identity & settings -----------------------------------------------
@@ -48,16 +51,29 @@ export const getLibraryCounts = () =>
   call<LibraryCounts>("get_library_counts");
 export const listFiles = (options?: {
   search?: string;
+  filter?: LibraryFilter;
   limit?: number;
   offset?: number;
 }) =>
   call<FileRow[]>("list_files", {
     search: options?.search ?? null,
+    filter: options?.filter ?? null,
     limit: options?.limit ?? null,
     offset: options?.offset ?? null,
   });
+export const countFiles = (options?: {
+  search?: string;
+  filter?: LibraryFilter;
+}) =>
+  call<number>("count_files", {
+    search: options?.search ?? null,
+    filter: options?.filter ?? null,
+  });
 export const listDuplicateGroups = () =>
   call<DuplicateGroupView[]>("list_duplicate_groups");
+export const listConflicts = () => call<ConflictGroup[]>("list_conflicts");
+export const listSuspectedDuplicates = () =>
+  call<SuspectedDuplicateGroup[]>("list_suspected_duplicates");
 export const setDuplicateGroupStatus = (
   groupId: number,
   status: "open" | "resolved" | "dismissed"
