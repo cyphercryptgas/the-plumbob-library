@@ -141,7 +141,7 @@ fn recommend<'a>(members: &[&'a FileFacts]) -> (i64, String) {
     if cleanest.len() == 1 {
         return (
             cleanest[0].id,
-            "kept the copy with the cleanest path (shallowest location, no download-duplicate markers)"
+            "kept the copy with the cleanest path (no download-duplicate markers, tidiest location)"
                 .into(),
         );
     }
@@ -165,10 +165,12 @@ fn recommend<'a>(members: &[&'a FileFacts]) -> (i64, String) {
     )
 }
 
-/// Lower is cleaner. Depth dominates; browser-duplicate markers like
-/// `" (1)"` or `"copy"` in the filename add penalties; ties break on the
-/// shorter name.
-fn path_untidiness(f: &FileFacts) -> (usize, u32, usize) {
+/// Lower is cleaner. Browser-duplicate markers like `" (1)"` or `"copy"`
+/// in the filename dominate — a marked file is never preferred over a
+/// clean-named copy no matter how shallow it sits (a `Downloads/file (1)`
+/// straggler must not outrank the tidy library copy). Depth breaks ties
+/// among equally-clean names; the shorter name breaks remaining ties.
+fn path_untidiness(f: &FileFacts) -> (u32, usize, usize) {
     let depth = f.relative_path.components().count().saturating_sub(1);
     let name = f
         .relative_path
@@ -182,7 +184,7 @@ fn path_untidiness(f: &FileFacts) -> (usize, u32, usize) {
     if has_paren_number(&name) {
         penalty += 1;
     }
-    (depth, penalty, name.len())
+    (penalty, depth, name.len())
 }
 
 fn has_paren_number(name: &str) -> bool {
@@ -286,6 +288,44 @@ mod tests {
         let groups = group_exact(&[a, b]);
         assert_eq!(groups[0].recommended_keep, 1);
         assert!(groups[0].recommendation_reason.contains("cleanest"));
+    }
+
+    #[test]
+    fn marker_free_name_beats_shallower_junk_copy() {
+        // Regression (found in demo-library validation): a "(1)"- or
+        // "copy"-marked file that happens to sit shallower — e.g. straight
+        // in Downloads/ — must never be recommended over a clean-named copy
+        // in a tidy, deeper location.
+        let junk = facts(
+            1,
+            "demo-library/Downloads/pixelpetal-wavy-bob (1).package",
+            100,
+            "aaa",
+        );
+        let clean = facts(
+            2,
+            "demo-library/CAS/Hair/PixelPetal/pixelpetal-wavy-bob.package",
+            100,
+            "aaa",
+        );
+        let groups = group_exact(&[junk, clean]);
+        assert_eq!(groups[0].recommended_keep, 2);
+        assert!(groups[0].recommendation_reason.contains("cleanest"));
+
+        let junk2 = facts(
+            3,
+            "demo-library/Unsorted/sundayseam-cardigan copy.package",
+            200,
+            "bbb",
+        );
+        let clean2 = facts(
+            4,
+            "demo-library/CAS/Clothing/SundaySeam/sundayseam-cardigan.package",
+            200,
+            "bbb",
+        );
+        let groups2 = group_exact(&[junk2, clean2]);
+        assert_eq!(groups2[0].recommended_keep, 4);
     }
 
     #[test]
