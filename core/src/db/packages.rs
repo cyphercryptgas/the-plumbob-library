@@ -182,6 +182,7 @@ pub fn run_parse_pass(
 pub struct ConflictMember {
     pub file_id: i64,
     pub relative_path: String,
+    pub absolute_path: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -216,7 +217,7 @@ const SAMPLE_KEYS: usize = 12;
 pub fn list_conflict_groups(conn: &Connection) -> Result<Vec<ConflictGroup>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT pr.type_id, pr.group_id, pr.instance,
-                f.id, f.relative_path, f.sha256, f.mod_id
+                f.id, f.relative_path, f.absolute_path, f.sha256, f.mod_id
          FROM package_resources pr
          JOIN files f ON f.id = pr.file_id
          WHERE f.status = 'current' AND f.missing = 0
@@ -236,6 +237,7 @@ pub fn list_conflict_groups(conn: &Connection) -> Result<Vec<ConflictGroup>, DbE
         instance: i64,
         file_id: i64,
         relative_path: String,
+        absolute_path: String,
         sha256: Option<String>,
         mod_id: Option<i64>,
     }
@@ -246,8 +248,9 @@ pub fn list_conflict_groups(conn: &Connection) -> Result<Vec<ConflictGroup>, DbE
             instance: r.get(2)?,
             file_id: r.get(3)?,
             relative_path: r.get(4)?,
-            sha256: r.get(5)?,
-            mod_id: r.get(6)?,
+            absolute_path: r.get(5)?,
+            sha256: r.get(6)?,
+            mod_id: r.get(7)?,
         })
     })?;
 
@@ -255,6 +258,7 @@ pub fn list_conflict_groups(conn: &Connection) -> Result<Vec<ConflictGroup>, DbE
     struct Member {
         file_id: i64,
         relative_path: String,
+        absolute_path: String,
         sha256: Option<String>,
         mod_id: Option<i64>,
     }
@@ -270,6 +274,7 @@ pub fn list_conflict_groups(conn: &Connection) -> Result<Vec<ConflictGroup>, DbE
             members.push(Member {
                 file_id: row.file_id,
                 relative_path: row.relative_path,
+                absolute_path: row.absolute_path,
                 sha256: row.sha256,
                 mod_id: row.mod_id,
             });
@@ -279,7 +284,7 @@ pub fn list_conflict_groups(conn: &Connection) -> Result<Vec<ConflictGroup>, DbE
     // Keep keys whose members are not all byte-identical, then merge keys
     // sharing the same file set into one group.
     struct Pending {
-        members: Vec<(i64, String, Option<i64>)>,
+        members: Vec<(i64, String, String, Option<i64>)>,
         keys: Vec<(i64, i64, i64)>,
     }
     let mut by_fileset: BTreeMap<Vec<i64>, Pending> = BTreeMap::new();
@@ -300,7 +305,14 @@ pub fn list_conflict_groups(conn: &Connection) -> Result<Vec<ConflictGroup>, DbE
         let entry = by_fileset.entry(ids).or_insert_with(|| Pending {
             members: members
                 .iter()
-                .map(|m| (m.file_id, m.relative_path.clone(), m.mod_id))
+                .map(|m| {
+                    (
+                        m.file_id,
+                        m.relative_path.clone(),
+                        m.absolute_path.clone(),
+                        m.mod_id,
+                    )
+                })
                 .collect(),
             keys: Vec::new(),
         });
@@ -343,9 +355,10 @@ pub fn list_conflict_groups(conn: &Connection) -> Result<Vec<ConflictGroup>, DbE
         groups.push(ConflictGroup {
             members: members
                 .into_iter()
-                .map(|(file_id, relative_path, _)| ConflictMember {
+                .map(|(file_id, relative_path, absolute_path, _)| ConflictMember {
                     file_id,
                     relative_path,
+                    absolute_path,
                 })
                 .collect(),
             shared_key_count,
@@ -371,12 +384,12 @@ pub fn list_conflict_groups(conn: &Connection) -> Result<Vec<ConflictGroup>, DbE
     Ok(groups)
 }
 
-fn shares_mod(members: &[(i64, String, Option<i64>)]) -> bool {
-    let first = members[0].2;
-    first.is_some() && members.iter().all(|m| m.2 == first)
+fn shares_mod(members: &[(i64, String, String, Option<i64>)]) -> bool {
+    let first = members[0].3;
+    first.is_some() && members.iter().all(|m| m.3 == first)
 }
 
-fn shares_top_folder(members: &[(i64, String, Option<i64>)]) -> bool {
+fn shares_top_folder(members: &[(i64, String, String, Option<i64>)]) -> bool {
     let top = |path: &str| -> Option<String> {
         let mut parts = path.split('/');
         let first = parts.next()?;
