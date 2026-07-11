@@ -15,6 +15,7 @@ pub mod catalog;
 pub mod dupes;
 pub mod files;
 pub mod ops;
+pub mod packages;
 pub mod settings;
 
 use rusqlite::Connection;
@@ -48,6 +49,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
     (
         "0002_seed_categories",
         include_str!("../../migrations/0002_seed_categories.sql"),
+    ),
+    (
+        "0003_package_resources",
+        include_str!("../../migrations/0003_package_resources.sql"),
     ),
 ];
 
