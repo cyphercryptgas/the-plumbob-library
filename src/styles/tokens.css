@@ -4,37 +4,49 @@
 
 /*
  * Design tokens — the single source of truth for color.
- * Muted blue and sage are the dominant thematic colors; dusty rose and
- * muted lavender are secondary accents only. Status colors are always
- * paired with icons and text in components — never color alone.
+ * Motherlode theme: deep emerald and antique gold on warm cream. Token
+ * NAMES are stable semantic roles (sage = primary accent, blue = secondary
+ * accent, blush = alert-soft) so components never change when the palette
+ * does. Status is always paired with icons and text — never color alone.
  */
 :root {
-  --background-app: #f5f7f4;
-  --background-sidebar: #eef2f1;
-  --background-surface: #ffffff;
-  --background-soft: #f0f4f1;
-  --background-blue-soft: #e8eff4;
-  --background-sage-soft: #e8efe7;
-  --background-blush-soft: #f7ecef;
+  --background-app: #f4eddc;
+  --background-sidebar: #10382b;
+  --background-surface: #fffdf6;
+  --background-soft: #f6efde;
+  --background-blue-soft: #f3e9d0; /* secondary accent soft: antique gold */
+  --background-sage-soft: #e2eee4; /* primary accent soft: emerald mist */
+  --background-blush-soft: #f6e4de;
 
-  --muted-blue: #7895a8;
-  --muted-blue-deep: #567386;
-  --sage: #8fa88a;
-  --sage-deep: #657d62;
-  --dusty-rose: #c99aa8;
-  --lavender-muted: #aaa0bf;
-  --cream: #fbf7f1;
+  --muted-blue: #c9a45c; /* secondary accent: gold */
+  --muted-blue-deep: #8a6b2e;
+  --sage: #1e6647; /* primary accent: emerald */
+  --sage-deep: #14503a;
+  --dusty-rose: #b65c4f;
+  --lavender-muted: #a08f6b;
+  --cream: #fbf6ea;
 
-  --text-primary: #293238;
-  --text-secondary: #5f6c72;
-  --text-muted: #879196;
-  --border-subtle: #dce4e2;
-  --border-strong: #c9d3d0;
+  --text-primary: #22302a;
+  --text-secondary: #4c594f;
+  --text-muted: #7b8577;
+  --border-subtle: #e7dcc0;
+  --border-strong: #d3c6a4;
 
-  --success: #668a6b;
-  --warning: #b3894d;
-  --danger: #ad646c;
-  --info: #668aa1;
+  --success: #2f7d4f;
+  --warning: #8a6420;
+  --danger: #a94438;
+  --info: #8a6b2e;
+
+  /* Dark sidebar companions */
+  --sidebar-ink: #f3edda;
+  --sidebar-ink-muted: #c7bc97;
+  --sidebar-hover: #1a4636;
+  --sidebar-active: #24523e;
+
+  --gold: #c9a45c;
+  --gold-deep: #8a6b2e;
+
+  --font-display: ui-serif, Georgia, Cambria, "Times New Roman", serif;
 }
 
 html,
@@ -53,9 +65,15 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* Display serif for top-level headings — the Motherlode voice. */
+h1 {
+  font-family: var(--font-display);
+  letter-spacing: 0.005em;
+}
+
 /* Visible focus for keyboard navigation — never removed, only styled. */
 :focus-visible {
-  outline: 2px solid var(--muted-blue-deep);
+  outline: 2px solid var(--gold-deep);
   outline-offset: 2px;
   border-radius: 4px;
 }
