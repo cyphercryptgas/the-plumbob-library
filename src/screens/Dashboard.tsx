@@ -4,7 +4,7 @@ import type { Route } from "../components/Sidebar";
 import { Button, Card, EmptyState, Pill, SectionTitle, Stat } from "../components/ui";
 
 export function Dashboard(props: { onNavigate: (route: Route) => void }) {
-  const { counts, duplicates, isGameRunning, scan, startScan, cancelScan } = useApp();
+  const { counts, duplicates, conflicts, isGameRunning, scan, startScan, cancelScan } = useApp();
 
   const attention: { label: string; tone: "warning" | "danger" | "rose" }[] = [];
   if (counts) {
@@ -20,6 +20,11 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
     if (duplicates.openGroups > 0)
       attention.push({
         label: `${plural(duplicates.openGroups, "duplicate group")}`,
+        tone: "rose",
+      });
+    if (conflicts.needsLook > 0)
+      attention.push({
+        label: `${plural(conflicts.needsLook, "possible conflict")}`,
         tone: "rose",
       });
   }
@@ -110,7 +115,9 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
               {scan.progress
                 ? scan.progress.phase === "scanning"
                   ? `Reading your library — ${plural(scan.progress.filesSeen, "file")} (${formatBytes(scan.progress.bytesSeen)}) so far.`
-                  : `Fingerprinting content — ${scan.progress.hashed} of ${scan.progress.toHash} files.`
+                  : scan.progress.phase === "parsing"
+                    ? `Indexing packages — ${scan.progress.hashed} of ${scan.progress.toHash}.`
+                    : `Fingerprinting content — ${scan.progress.hashed} of ${scan.progress.toHash} files.`
                 : "Starting up…"}
             </p>
             <Button variant="quiet" onClick={() => void cancelScan()}>
@@ -128,14 +135,20 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
                 , {scan.lastOutcome.changedFiles} changed,{" "}
                 {scan.lastOutcome.missingFiles} newly missing,{" "}
                 {scan.lastOutcome.duplicateGroups} duplicate{" "}
-                {scan.lastOutcome.duplicateGroups === 1 ? "group" : "groups"} —
-                finished in {formatDuration(scan.lastOutcome.durationMs)}
+                {scan.lastOutcome.duplicateGroups === 1 ? "group" : "groups"}
+                {scan.lastOutcome.packagesParsed > 0
+                  ? `, ${plural(scan.lastOutcome.packagesParsed, "package")} indexed`
+                  : ""}{" "}
+                — finished in {formatDuration(scan.lastOutcome.durationMs)}
                 {scan.lastOutcome.cancelled ? " (cancelled early)" : ""}
                 {scan.lastOutcome.scanErrors > 0
                   ? ` · ${plural(scan.lastOutcome.scanErrors, "path")} couldn't be read`
                   : ""}
                 {scan.lastOutcome.hashErrors > 0
                   ? ` · ${plural(scan.lastOutcome.hashErrors, "file")} couldn't be fingerprinted`
+                  : ""}
+                {scan.lastOutcome.parseErrors > 0
+                  ? ` · ${plural(scan.lastOutcome.parseErrors, "package")} couldn't be read (see Library → Unreadable)`
                   : ""}
                 .
               </p>
