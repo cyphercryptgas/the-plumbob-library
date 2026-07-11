@@ -76,7 +76,7 @@ shallow and fixable from the Actions log.
 |---|---|
 | DBPF index parsing (read-only: header + resource keys) | Complete | `core/src/dbpf.rs`, 11 tests: bitfield-index variants, hi/lo instance assembly, corrupt/truncated/hostile inputs refused honestly; sourced type-name map |
 | Package-resource storage & incremental parse pass | Complete (core) | migration 0003, `core/src/db/packages.rs`; content-keyed staleness, cancel-safe resumable pass; realistic end-to-end tests on real DBPF bytes |
-| Resource-conflict detection (queries + noise policy) | Complete (core) | identical-content overlaps routed to Duplicates; presentation-only overlaps low severity; same-folder/same-mod flagged likely intentional; name-based load-order approximation |
+| Resource-conflict detection (queries + noise policy) | Complete (core) | identical-content overlaps routed to Duplicates; ubiquitous tool-stamp keys (>12 packages) excluded as boilerplate; presentation-only overlaps low severity; same-folder/same-mod flagged likely intentional; name-based load-order approximation |
 | Suspected duplicates (same name, different content) | Complete (core) | `list_suspected_duplicates`; exact-content pairs excluded by design |
 | Parse pass in the scan pipeline | Complete | new "parsing" phase with progress events; file IO outside the DB lock; outcome reports packages indexed / unreadable |
 | Conflicts screen | Complete | needs-a-look vs probably-fine split, load-order display with presumptive winner, sample keys, honest caveats (index-level analysis; ts4script not analyzable) |
