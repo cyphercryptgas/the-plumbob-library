@@ -1,12 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as api from "../lib/commands";
 import { formatBytes, formatDateTime, plural } from "../lib/format";
-import type { FileRow } from "../lib/types";
+import type { FileRow, LibraryFilter } from "../lib/types";
 import { useApp } from "../state/AppContext";
 import { Button, Card, EmptyState, Pill, TextInput } from "../components/ui";
 import { QuarantineDialog } from "../components/QuarantineDialog";
 
 const PAGE_SIZE = 100;
+
+const FILTERS: { key: LibraryFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "packages", label: "Packages" },
+  { key: "scripts", label: "Scripts" },
+  { key: "archives", label: "Archives" },
+  { key: "zero-byte", label: "Zero-byte" },
+  { key: "deep-scripts", label: "Deep scripts" },
+  { key: "missing", label: "Missing" },
+  { key: "quarantined", label: "Quarantined" },
+  { key: "unreadable", label: "Unreadable" },
+];
 
 const TYPE_TONES: Record<string, "sage" | "blue" | "rose" | "neutral" | "warning"> = {
   package: "sage",
@@ -21,11 +33,13 @@ const TYPE_TONES: Record<string, "sage" | "blue" | "rose" | "neutral" | "warning
 };
 
 export function Library() {
-  const { counts, libraryVersion, reportError } = useApp();
+  const { libraryVersion, reportError } = useApp();
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<LibraryFilter>("all");
   const [page, setPage] = useState(0);
   const [rows, setRows] = useState<FileRow[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [quarantining, setQuarantining] = useState<number[] | null>(null);
@@ -42,15 +56,19 @@ export function Library() {
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    api
-      .listFiles({
+    Promise.all([
+      api.listFiles({
         search: query || undefined,
+        filter,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
-      })
-      .then((data) => {
+      }),
+      api.countFiles({ search: query || undefined, filter }),
+    ])
+      .then(([data, count]) => {
         if (!alive) return;
         setRows(data);
+        setTotal(count);
         setSelected(new Set());
       })
       .catch(reportError)
@@ -58,7 +76,7 @@ export function Library() {
     return () => {
       alive = false;
     };
-  }, [query, page, libraryVersion, reportError]);
+  }, [query, filter, page, libraryVersion, reportError]);
 
   const selectableRows = useMemo(
     () => rows.filter((r) => !r.missing && r.status !== "quarantined"),
@@ -85,7 +103,7 @@ export function Library() {
     });
   }, []);
 
-  const hasMore = rows.length === PAGE_SIZE;
+  const hasMore = total !== null ? page * PAGE_SIZE + rows.length < total : rows.length === PAGE_SIZE;
   const rangeStart = page * PAGE_SIZE + 1;
   const rangeEnd = page * PAGE_SIZE + rows.length;
 
@@ -111,21 +129,43 @@ export function Library() {
               ? "Loading…"
               : rows.length === 0
                 ? "No matches"
-                : query
-                  ? `Showing ${rangeStart}–${rangeEnd}`
-                  : counts
-                    ? `Showing ${rangeStart}–${rangeEnd} of ${counts.totalFiles.toLocaleString()}`
-                    : `Showing ${rangeStart}–${rangeEnd}`}
+                : total !== null
+                  ? `Showing ${rangeStart}–${rangeEnd} of ${total.toLocaleString()}`
+                  : `Showing ${rangeStart}–${rangeEnd}`}
           </span>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
+          {FILTERS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => {
+                setFilter(f.key);
+                setPage(0);
+              }}
+              aria-pressed={filter === f.key}
+              className={`rounded-control border px-2.5 py-1 text-xs transition-colors ${
+                filter === f.key
+                  ? "border-transparent bg-accent font-medium text-ink"
+                  : "border-border-subtle text-ink-secondary hover:bg-soft"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
         </div>
       </Card>
 
       {rows.length === 0 && !loading ? (
         <EmptyState
-          title={query ? "No files match that search" : "Nothing here yet"}
+          title={
+            query || filter !== "all"
+              ? "No files match"
+              : "Nothing here yet"
+          }
           body={
-            query
-              ? "Try a shorter fragment of the path or name."
+            query || filter !== "all"
+              ? "Try a different filter or a shorter fragment of the path."
               : "Run a scan from the Dashboard to inventory your Mods folder."
           }
         />
@@ -196,6 +236,14 @@ export function Library() {
                         {f.deepScript ? (
                           <Pill tone="danger" title="Nested deeper than the game loads scripts">
                             too deep
+                          </Pill>
+                        ) : null}
+                        {f.parseStatus && f.parseStatus !== "ok" ? (
+                          <Pill
+                            tone="warning"
+                            title={`This package's index couldn't be read (${f.parseStatus}) — it may be corrupt.`}
+                          >
+                            unreadable
                           </Pill>
                         ) : null}
                       </span>
