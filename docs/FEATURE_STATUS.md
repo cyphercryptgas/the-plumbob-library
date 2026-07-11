@@ -2,7 +2,7 @@
 
 Statuses: **Complete** · **Partial** · **Scaffolded** · **Not implemented** · **Requires external credentials** · **Experimental**
 
-Updated: plateau 6 (release candidate — docs, research, fixtures, final validation). This file is updated at the end
+Updated: Phase 2 plateau 1 (DBPF index parsing in the core). This file is updated at the end
 of every plateau and never claims more than what the test suite and a running
 build actually demonstrate.
 
@@ -74,6 +74,7 @@ shallow and fixable from the Actions log.
 
 | Capability | Status |
 |---|---|
-| Package (DBPF) parsing, resource conflicts | Not implemented (Phase 2) |
+| DBPF index parsing (read-only: header + resource keys) | Complete | `core/src/dbpf.rs`, 11 tests: bitfield-index variants, hi/lo instance assembly, corrupt/truncated/hostile inputs refused honestly; sourced type-name map |
+| Resource-conflict detection & Conflicts screen | Not implemented (Phase 2, plateaus 2–3) |
 | CurseForge provider | Not implemented — Requires external credentials (Phase 3) |
 | Patch Center, 50/50 assistant, Profiles, Merging | Not implemented (Phases 3–5) |
