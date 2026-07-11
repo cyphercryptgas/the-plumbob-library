@@ -1,6 +1,6 @@
 import { PlumbobMark, Pill } from "./ui";
 import { useApp } from "../state/AppContext";
-import { PRODUCT_NAME } from "../lib/product";
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from "../lib/product";
 
 export type Route =
   | "dashboard"
@@ -47,10 +47,12 @@ export function Sidebar(props: {
       <div className="flex items-center gap-2.5 px-4 py-5">
         <PlumbobMark />
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-ink">
+          <div className="truncate font-display text-sm font-semibold text-sidebar-ink">
             {PRODUCT_NAME}
           </div>
-          <div className="text-[11px] text-ink-muted">Mods, kept cozy</div>
+          <div className="text-[11px] text-sidebar-ink-muted">
+            {PRODUCT_TAGLINE}
+          </div>
         </div>
       </div>
 
@@ -66,8 +68,8 @@ export function Sidebar(props: {
               aria-current={active ? "page" : undefined}
               className={`flex w-full items-center justify-between rounded-control px-3 py-2 text-left text-sm transition-colors ${
                 active
-                  ? "bg-surface font-semibold text-ink shadow-card"
-                  : "text-ink-secondary hover:bg-soft hover:text-ink"
+                  ? "bg-sidebar-active font-semibold text-sidebar-ink shadow-card"
+                  : "text-sidebar-ink-muted hover:bg-sidebar-hover hover:text-sidebar-ink"
               }`}
             >
               <span>{item.label}</span>
@@ -76,13 +78,13 @@ export function Sidebar(props: {
           );
         })}
 
-        <div className="pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
+        <div className="pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider text-sidebar-ink-muted">
           Planned
         </div>
         {PLANNED.map((label) => (
           <div
             key={label}
-            className="flex w-full cursor-not-allowed items-center justify-between rounded-control px-3 py-2 text-sm text-ink-muted"
+            className="flex w-full cursor-not-allowed items-center justify-between rounded-control px-3 py-2 text-sm text-sidebar-ink-muted opacity-80"
             title="Not built yet — listed so the roadmap is honest, not to look finished."
           >
             <span>{label}</span>
@@ -91,7 +93,7 @@ export function Sidebar(props: {
         ))}
       </nav>
 
-      <div className="border-t border-border-subtle px-4 py-3 text-xs text-ink-muted">
+      <div className="border-t border-sidebar-hover px-4 py-3 text-xs text-sidebar-ink-muted">
         <div className="flex items-center gap-2">
           <span
             aria-hidden="true"
