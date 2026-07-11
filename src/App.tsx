@@ -2,7 +2,7 @@ import { useState } from "react";
 import { isTauri } from "./lib/tauri";
 import { AppProvider, useApp } from "./state/AppContext";
 import { Sidebar, type Route } from "./components/Sidebar";
-import { Banner, OrnamentalFrame } from "./components/ui";
+import { Banner } from "./components/ui";
 import { BrowserNotice } from "./screens/BrowserNotice";
 import { Onboarding } from "./screens/Onboarding";
 import { Dashboard } from "./screens/Dashboard";
@@ -63,14 +63,13 @@ function Shell() {
   }
 
   return (
-    <div className="flex h-full bg-app">
+    <div className="flex h-full gap-5 bg-app p-4">
       <Sidebar route={route} onNavigate={setRoute} />
-      <div className="flex min-w-0 flex-1 flex-col p-3">
+      <div className="flex min-w-0 flex-1 flex-col">
         <div className="relative flex min-h-0 flex-1 flex-col">
-          <OrnamentalFrame />
           <div className="min-h-0 flex-1 overflow-y-auto px-10 py-8">
             <div className="mb-5 flex items-baseline justify-between">
-              <h1 className="text-[30px] font-semibold text-ink">
+              <h1 className="text-[32px] font-bold text-ink [text-shadow:0_1px_0_#fff]">
                 {TITLES[route]}
               </h1>
               {scan.running ? (
