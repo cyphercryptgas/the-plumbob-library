@@ -206,8 +206,9 @@ pub fn run_scan_pipeline(
         let mut guard = lock_db(dbm)?;
         let facts = db::dupes::load_file_facts(guard.conn()).map_err(err_str)?;
         let groups = duplicates::group_exact(&facts);
-        db::dupes::replace_exact_groups(guard.conn_mut(), &groups).map_err(err_str)?;
-        groups.len()
+        // The insert count excludes fingerprints the user has dismissed, so
+        // the reported number matches what the Duplicate Center will show.
+        db::dupes::replace_exact_groups(guard.conn_mut(), &groups).map_err(err_str)?
     };
 
     let outcome = ScanOutcome {
@@ -501,8 +502,13 @@ pub fn reveal_in_explorer(dbm: &Mutex<Database>, data_dir: &Path, raw_path: &str
     }
     #[cfg(target_os = "windows")]
     {
+        // Standard argument quoting wraps the whole "/select,<path>" token in
+        // quotes when the path contains spaces, which explorer.exe rejects —
+        // it falls back to opening the default folder instead of selecting
+        // the file. Pass the command line raw with only the path quoted.
+        use std::os::windows::process::CommandExt;
         std::process::Command::new("explorer")
-            .arg(format!("/select,{}", target.display()))
+            .raw_arg(format!("/select,\"{}\"", target.display()))
             .spawn()
             .map_err(err_str)?;
     }
