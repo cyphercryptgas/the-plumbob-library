@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import * as api from "../lib/commands";
 import { formatBytes, formatDateTime, plural, shortHash } from "../lib/format";
-import type { DuplicateGroupView } from "../lib/types";
+import type { DuplicateGroupView, SuspectedDuplicateGroup } from "../lib/types";
 import { useApp } from "../state/AppContext";
 import { Button, Card, EmptyState, Pill, SectionTitle } from "../components/ui";
 import { QuarantineDialog } from "../components/QuarantineDialog";
@@ -180,6 +180,8 @@ export function Duplicates() {
         );
       })}
 
+      <SuspectedSection />
+
       {pending ? (
         <QuarantineDialog
           fileIds={pending.fileIds}
@@ -188,6 +190,74 @@ export function Duplicates() {
           onClose={() => setPending(null)}
         />
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Lower-confidence tier: packages sharing a file name but carrying
+ * different content. Displayed for hand review only — exact matches above
+ * are the safe ones to act on, so no set-aside button lives here.
+ */
+function SuspectedSection() {
+  const { libraryVersion, reportError } = useApp();
+  const [groups, setGroups] = useState<SuspectedDuplicateGroup[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .listSuspectedDuplicates()
+      .then((data) => {
+        if (alive) setGroups(data);
+      })
+      .catch(reportError);
+    return () => {
+      alive = false;
+    };
+  }, [libraryVersion, reportError]);
+
+  if (groups.length === 0) return null;
+
+  return (
+    <div className="space-y-3 pt-2">
+      <SectionTitle hint="Same file name, different content — probably versions of the same thing. Lower confidence than the fingerprint matches above, so review these by hand.">
+        Suspected duplicates
+      </SectionTitle>
+      {groups.map((g) => (
+        <Card key={g.fileName}>
+          <div className="mb-2 flex items-center gap-2">
+            <span className="text-sm font-medium text-ink">{g.fileName}</span>
+            <Pill tone="warning">different content</Pill>
+          </div>
+          <ul className="space-y-2">
+            {g.members.map((m) => (
+              <li
+                key={m.fileId}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-control border border-border-subtle px-3 py-2"
+              >
+                <span
+                  className="min-w-0 flex-1 truncate text-sm text-ink-secondary"
+                  title={m.relativePath}
+                >
+                  {m.relativePath}
+                </span>
+                <span className="text-xs text-ink-muted">
+                  {formatBytes(m.sizeBytes)}
+                </span>
+                <Button
+                  variant="quiet"
+                  onClick={() =>
+                    api.revealInExplorer(m.absolutePath).catch(reportError)
+                  }
+                  title="Reveal in file manager"
+                >
+                  Reveal
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ))}
     </div>
   );
 }
