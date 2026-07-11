@@ -18,6 +18,7 @@
 //!   failure.
 
 pub mod db;
+pub mod dbpf;
 pub mod duplicates;
 pub mod hashing;
 pub mod ops;
