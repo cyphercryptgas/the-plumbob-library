@@ -5,6 +5,7 @@
 //! commands.rs); the database mutex intentionally serializes mutations.
 
 use plumbob_core::db::{self, settings::AppSettings, Database};
+use plumbob_core::dbpf;
 use plumbob_core::duplicates;
 use plumbob_core::hashing;
 use plumbob_core::ops::{self, QuarantineRequest, SnapshotEntry};
@@ -119,6 +120,8 @@ pub struct ScanOutcome {
     pub hashed_files: usize,
     pub hash_errors: usize,
     pub duplicate_groups: usize,
+    pub packages_parsed: usize,
+    pub parse_errors: usize,
     pub scan_errors: usize,
     pub cancelled: bool,
     pub duration_ms: u64,
@@ -202,6 +205,67 @@ pub fn run_scan_pipeline(
         db::files::update_hashes(guard.conn_mut(), &updates).map_err(err_str)?;
     }
 
+    // Package index pass (Phase 2). Content-keyed incremental: only files
+    // whose fingerprint changed since their last parse do any work. File IO
+    // happens outside the database lock, mirroring the hash pass; results
+    // are recorded in one transaction.
+    let (packages_parsed, parse_errors) = {
+        let pending = {
+            let guard = lock_db(dbm)?;
+            db::packages::files_needing_parse(guard.conn()).map_err(err_str)?
+        };
+        let to_parse = pending.len();
+        let mut results: Vec<(i64, Result<dbpf::PackageIndex, dbpf::DbpfError>)> =
+            Vec::with_capacity(to_parse);
+        for (i, (file_id, rel)) in pending.into_iter().enumerate() {
+            if cancel.load(Ordering::Relaxed) {
+                break;
+            }
+            let parsed = match roots.mods.resolve_relative(Path::new(&rel)) {
+                Ok(abs) => dbpf::read_package_index(&abs),
+                Err(_) => Err(dbpf::DbpfError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "path escaped the mods folder",
+                ))),
+            };
+            results.push((file_id, parsed));
+            if (i + 1) % 25 == 0 {
+                let _ = app.emit(
+                    "scan://progress",
+                    ScanProgressEvent {
+                        phase: "parsing",
+                        files_seen: report.files.len() as u64,
+                        bytes_seen: report.total_bytes,
+                        hashed: i + 1,
+                        to_hash: to_parse,
+                    },
+                );
+            }
+        }
+        let mut ok = 0usize;
+        let mut failed = 0usize;
+        {
+            let mut guard = lock_db(dbm)?;
+            let tx = guard.conn_mut().transaction().map_err(err_str)?;
+            for (file_id, parsed) in &results {
+                match parsed {
+                    Ok(index) => {
+                        db::packages::record_package_index(&tx, *file_id, index)
+                            .map_err(err_str)?;
+                        ok += 1;
+                    }
+                    Err(err) => {
+                        db::packages::record_parse_error(&tx, *file_id, err)
+                            .map_err(err_str)?;
+                        failed += 1;
+                    }
+                }
+            }
+            tx.commit().map_err(err_str)?;
+        }
+        (ok, failed)
+    };
+
     let duplicate_groups = {
         let mut guard = lock_db(dbm)?;
         let facts = db::dupes::load_file_facts(guard.conn()).map_err(err_str)?;
@@ -221,6 +285,8 @@ pub fn run_scan_pipeline(
         hashed_files,
         hash_errors,
         duplicate_groups,
+        packages_parsed,
+        parse_errors,
         scan_errors,
         cancelled: cancelled_walk || cancel.load(Ordering::Relaxed),
         duration_ms: started.elapsed().as_millis() as u64,
