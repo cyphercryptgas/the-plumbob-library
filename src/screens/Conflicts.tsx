@@ -51,7 +51,9 @@ export function Conflicts() {
           <span className="font-medium text-ink">indexes</span>, so it can't
           tell whether two copies of a resource are actually different inside
           (byte-identical <em>files</em> are handled by Duplicates instead),
-          and script mods (.ts4script) can't be analyzed this way at all.
+          script mods (.ts4script) can't be analyzed this way at all, and a key
+          stamped into a dozen-plus packages is treated as tool boilerplate
+          rather than a collision.
         </p>
       </Card>
 
