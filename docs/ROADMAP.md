@@ -4,7 +4,7 @@ Later phases, in dependency order. Every item below is **capability-flagged
 off** until it truly works — the interface lists them under "Planned" and
 never renders fake versions. Status source of truth: `FEATURE_STATUS.md`.
 
-## Phase 2 — package awareness
+## Phase 2 — package awareness ✅ SHIPPED
 
 * DBPF (`.package`) header/index parsing: resource counts, resource-key
   extraction.
