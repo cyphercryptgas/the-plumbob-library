@@ -6,6 +6,7 @@ export type Route =
   | "dashboard"
   | "library"
   | "duplicates"
+  | "conflicts"
   | "quarantine"
   | "backups"
   | "activity"
@@ -15,6 +16,7 @@ const NAV: { route: Route; label: string }[] = [
   { route: "dashboard", label: "Dashboard" },
   { route: "library", label: "Library" },
   { route: "duplicates", label: "Duplicates" },
+  { route: "conflicts", label: "Conflicts" },
   { route: "quarantine", label: "Quarantine" },
   { route: "backups", label: "Backups" },
   { route: "activity", label: "Activity" },
@@ -22,17 +24,19 @@ const NAV: { route: Route; label: string }[] = [
 ];
 
 /** Honest labeling: planned features are visible but clearly not built. */
-const PLANNED = ["Conflicts", "Patch Center", "Profiles"];
+const PLANNED = ["Patch Center", "Profiles"];
 
 export function Sidebar(props: {
   route: Route;
   onNavigate: (route: Route) => void;
 }) {
-  const { counts, duplicates, isGameRunning, info } = useApp();
+  const { counts, duplicates, conflicts, isGameRunning, info } = useApp();
 
   const badge = (route: Route): number | null => {
     if (route === "duplicates" && duplicates.openGroups > 0)
       return duplicates.openGroups;
+    if (route === "conflicts" && conflicts.needsLook > 0)
+      return conflicts.needsLook;
     if (route === "quarantine" && counts && counts.quarantined > 0)
       return counts.quarantined;
     return null;
