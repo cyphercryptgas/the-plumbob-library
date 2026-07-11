@@ -3,6 +3,7 @@
  * corners, calm colors, status never conveyed by color alone.
  */
 import type { ReactNode } from "react";
+import mark from "../assets/mark.png";
 
 export function Card(props: { children: ReactNode; className?: string }) {
   return (
@@ -67,7 +68,7 @@ const pillTones: Record<Tone, string> = {
   blue: "bg-blue-soft text-muted-blue-deep",
   rose: "bg-blush-soft text-dusty-rose",
   neutral: "bg-soft text-ink-secondary",
-  warning: "bg-blush-soft text-warning",
+  warning: "bg-blue-soft text-warning",
   danger: "bg-blush-soft text-danger",
 };
 
@@ -159,7 +160,7 @@ export function Banner(props: {
 }) {
   const tones = {
     info: "bg-blue-soft text-muted-blue-deep",
-    warning: "bg-blush-soft text-warning",
+    warning: "bg-blue-soft text-warning",
     danger: "bg-blush-soft text-danger",
     success: "bg-sage-soft text-sage-deep",
   } as const;
@@ -205,26 +206,18 @@ export function Stat(props: { label: string; value: string; sub?: string }) {
   );
 }
 
-/** The little plumbob mark used in the sidebar brand block. */
+/** The brand mark used in the sidebar, onboarding, and notices. */
 export function PlumbobMark(props: { size?: number }) {
   const s = props.size ?? 28;
   return (
-    <svg
+    <img
+      src={mark}
       width={s}
       height={s}
-      viewBox="0 0 100 100"
+      alt=""
       aria-hidden="true"
-      className="shrink-0"
-    >
-      <polygon
-        points="50,8 76,50 50,92 24,50"
-        fill="var(--sage)"
-        stroke="var(--sage-deep)"
-        strokeWidth="4"
-        strokeLinejoin="round"
-      />
-      <polygon points="50,8 50,92 24,50" fill="var(--background-sage-soft)" opacity="0.55" />
-    </svg>
+      className="shrink-0 rounded-lg"
+    />
   );
 }
 
