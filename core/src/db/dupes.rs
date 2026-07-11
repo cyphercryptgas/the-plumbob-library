@@ -221,6 +221,7 @@ pub fn list_open_exact_groups(conn: &Connection) -> Result<Vec<DuplicateGroupVie
 pub struct SuspectedMember {
     pub file_id: i64,
     pub relative_path: String,
+    pub absolute_path: String,
     pub size_bytes: i64,
 }
 
@@ -240,7 +241,7 @@ pub fn list_suspected_duplicates(
     conn: &Connection,
 ) -> Result<Vec<SuspectedDuplicateGroup>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT f.id, f.current_filename, f.relative_path, f.size_bytes
+        "SELECT f.id, f.current_filename, f.relative_path, f.absolute_path, f.size_bytes
          FROM files f
          WHERE f.file_type = 'package' AND f.status = 'current'
            AND f.missing = 0 AND f.sha256 IS NOT NULL
@@ -257,16 +258,18 @@ pub fn list_suspected_duplicates(
             r.get::<_, i64>(0)?,
             r.get::<_, String>(1)?,
             r.get::<_, String>(2)?,
-            r.get::<_, i64>(3)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, i64>(4)?,
         ))
     })?;
 
     let mut groups: Vec<SuspectedDuplicateGroup> = Vec::new();
     for row in rows {
-        let (file_id, name, relative_path, size_bytes) = row?;
+        let (file_id, name, relative_path, absolute_path, size_bytes) = row?;
         let member = SuspectedMember {
             file_id,
             relative_path,
+            absolute_path,
             size_bytes,
         };
         match groups.last_mut() {
