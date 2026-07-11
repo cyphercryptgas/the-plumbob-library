@@ -1,4 +1,6 @@
-# Motherlode Manager\n\n> Formerly *Motherlode Manager* — renamed in v0.2.0. All data, internals, and the on-disk identity (`com.moetech.plumbob`) are unchanged; existing libraries carry over untouched.
+# Motherlode Manager
+
+> Formerly *The Plumbob Library* — renamed in v0.2.0. All data, internals, and the on-disk identity (`com.moetech.plumbob`) are unchanged; existing libraries carry over untouched.
 
 **Your mods. Organized. Precious. — a safety-first manager for Sims 4 mods and custom content.**
 
