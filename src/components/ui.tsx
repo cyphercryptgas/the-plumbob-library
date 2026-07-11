@@ -19,12 +19,18 @@ export function SectionTitle(props: { children: ReactNode; hint?: string }) {
   return (
     <div className="mb-3">
       <div className="flex items-center gap-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-sage-deep">
+        <span
+          aria-hidden="true"
+          className="text-[11px] text-gold [text-shadow:0_0_8px_rgba(201,164,92,0.9)]"
+        >
+          ✦
+        </span>
+        <h2 className="font-display text-sm font-semibold uppercase tracking-wider text-sage-deep">
           {props.children}
         </h2>
         <span
           aria-hidden="true"
-          className="h-px flex-1 bg-gradient-to-r from-gold/50 to-transparent"
+          className="h-px flex-1 bg-gradient-to-r from-gold/60 to-transparent shadow-[0_0_6px_rgba(194,163,94,0.35)]"
         />
       </div>
       {props.hint ? (
@@ -207,17 +213,21 @@ export function Stat(props: {
   icon?: IconName;
 }) {
   return (
-    <div className="gold-edge-card rounded-card px-4 py-3">
-      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-ink-muted">
-        {props.icon ? (
-          <span className="icon-chip flex h-7 w-7 items-center justify-center rounded-lg">
-            <Icon name={props.icon} size={15} className="text-gold-deep" />
-          </span>
-        ) : null}
+    <div className="gold-edge-card rounded-card px-3 py-4 text-center">
+      {props.icon ? (
+        <span className="icon-chip mx-auto flex h-11 w-11 items-center justify-center rounded-xl">
+          <Icon name={props.icon} size={20} />
+        </span>
+      ) : null}
+      <div className="mt-2 text-[10.5px] font-bold uppercase tracking-[0.13em] text-[#94875e]">
         {props.label}
       </div>
-      <div className="mt-0.5 text-xl font-semibold text-ink">{props.value}</div>
-      {props.sub ? <div className="text-xs text-ink-muted">{props.sub}</div> : null}
+      <div className="mt-0.5 font-display text-[26px] font-bold leading-tight text-ink [text-shadow:0_1px_0_#fff]">
+        {props.value}
+      </div>
+      {props.sub ? (
+        <div className="mt-0.5 text-[11.5px] text-[#4d8b63]">{props.sub}</div>
+      ) : null}
     </div>
   );
 }
@@ -415,46 +425,116 @@ export function Icon(props: {
   );
 }
 
-function Flourish(props: { className?: string }) {
+const GOLD_DEFS = (
+  <defs>
+    <linearGradient id="mlfin" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stopColor="#f6e6b0" />
+      <stop offset="0.5" stopColor="#cfa75c" />
+      <stop offset="1" stopColor="#8a6825" />
+    </linearGradient>
+  </defs>
+);
+
+function Finial() {
+  const eng = (d: string, w: number) => (
+    <>
+      <path d={d} stroke="#6f521a" strokeWidth={w + 1} transform="translate(.7,.8)" opacity=".5" />
+      <path d={d} stroke="url(#mlfin)" strokeWidth={w} />
+      <path d={d} stroke="#fff6d8" strokeWidth={Math.max(w - 1, 0.5)} transform="translate(-.4,-.5)" opacity=".5" />
+    </>
+  );
   return (
-    <svg
-      width="46"
-      height="46"
-      viewBox="0 0 48 48"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.4}
-      strokeLinecap="round"
-      aria-hidden="true"
-      className={props.className}
-    >
-      <path d="M6 42 C6 16 16 6 42 6" />
-      <path d="M14 34 C14 20 20 14 34 14" strokeWidth={0.9} opacity={0.7} />
-      <circle cx="9" cy="39" r="1.3" fill="currentColor" stroke="none" />
-      <circle cx="39" cy="9" r="1.3" fill="currentColor" stroke="none" />
+    <svg width="60" height="16" viewBox="0 0 60 16" fill="none" strokeLinecap="round" aria-hidden="true">
+      {GOLD_DEFS}
+      {eng("M4 8 H18", 1.6)}
+      {eng("M42 8 H56", 1.6)}
+      {eng("M18 8 C22 3.5 25 3 27 5.5", 1.1)}
+      {eng("M42 8 C38 3.5 35 3 33 5.5", 1.1)}
+      {eng("M18 8 C22 12.5 25 13 27 10.5", 1.1)}
+      {eng("M42 8 C38 12.5 35 13 33 10.5", 1.1)}
+      <path d="M30 2.6l4.4 5.4L30 13.4 25.6 8z" fill="url(#mlfin)" stroke="#6f521a" strokeWidth=".6" />
+      <path d="M30 2.6l4.4 5.4L30 13.4z" fill="#fff2c9" opacity=".35" />
+      <circle cx="21" cy="8" r="1" fill="#fff2c9" />
+      <circle cx="39" cy="8" r="1" fill="#fff2c9" />
     </svg>
   );
 }
 
-/** The gilded frame around the content area — double hairline with corner
- * flourishes, per the Motherlode design spec. Purely decorative. */
-export function OrnamentalFrame() {
+function CornerScroll(props: { size: number }) {
+  // Engraved corner drawn in display pixels: the two frame lines enter at
+  // the exact insets the edge divs use (3.5 and 7.5), turn through the
+  // corner, and grow volutes. Triple-pass strokes fake the relief.
+  const s = props.size;
+  const eng = (d: string, w: number) => (
+    <>
+      <path d={d} stroke="#6f521a" strokeWidth={w + 0.9} transform="translate(.7,.8)" opacity=".5" />
+      <path d={d} stroke="url(#mlfin)" strokeWidth={w} />
+      <path d={d} stroke="#fff6d8" strokeWidth={Math.max(w - 1, 0.5)} transform="translate(-.4,-.5)" opacity=".5" />
+    </>
+  );
   return (
-    <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 text-gold/70">
-      <div
-        className="absolute inset-2 rounded-[14px] shadow-[0_0_22px_rgba(201,164,92,0.14)]"
-        style={{
-          border: "1px solid transparent",
-          backgroundImage: "linear-gradient(#0000,#0000), var(--gold-grad-soft)",
-          backgroundClip: "padding-box, border-box",
-          backgroundOrigin: "padding-box, border-box",
-        }}
-      />
-      <div className="absolute inset-[13px] rounded-[10px] border border-gold/20" />
-      <Flourish className="absolute left-1 top-1" />
-      <Flourish className="absolute right-1 top-1 rotate-90" />
-      <Flourish className="absolute bottom-1 right-1 rotate-180" />
-      <Flourish className="absolute bottom-1 left-1 -rotate-90" />
-    </div>
+    <svg width={s} height={s} viewBox="0 0 30 30" fill="none" strokeLinecap="round" aria-hidden="true">
+      {GOLD_DEFS}
+      {eng("M30 3.5 C11 3.5 3.5 11 3.5 30", 2.2)}
+      {eng("M30 7.5 C14 7.5 7.5 14 7.5 30", 1.1)}
+      {eng("M25 3.5 C19 3.5 16.5 1 16.5 -1.5", 1.2)}
+      {eng("M3.5 25 C3.5 19 1 16.5 -1.5 16.5", 1.2)}
+      {eng("M21 9 C17 12 15 12.5 13 14.5 M13 14.5 C12.5 15 12 17 9 21", 0.9)}
+      <path d="M6.6 6.6l2.6-.8.8 2.6-2.6.8z" fill="url(#mlfin)" stroke="#6f521a" strokeWidth=".45" />
+      <circle cx="7.6" cy="7.6" r=".8" fill="#fff2c9" />
+    </svg>
+  );
+}
+
+/** The gilded cartouche frame — engraved edge lines, scroll corners, and
+ * optional spliced finials, floating as a zero-layout overlay. Built from
+ * primitives (divs + fixed SVGs) so no rendering path can drop segments. */
+export function CartoucheFrame(props: { large?: boolean; finials?: boolean }) {
+  const inset = props.large ? -10 : -6;
+  const corner = props.large ? 38 : 30;
+  const l1 = 3.5; // main line inset within the overlay
+  const l2 = 7.5; // inner hairline inset
+  const gap = corner - 4; // lines stop where corner art takes over
+  const lineStyle = (o: number): React.CSSProperties => ({ top: o - 1 });
+  void lineStyle;
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute z-[3]"
+      style={{ inset }}
+    >
+      <span className="cart-glow" />
+      {/* main lines */}
+      <span className="cart-line-h" style={{ left: gap, right: gap, top: l1 - 1 }} />
+      <span className="cart-line-h" style={{ left: gap, right: gap, bottom: l1 - 1 }} />
+      <span className="cart-line-v" style={{ top: gap, bottom: gap, left: l1 - 1 }} />
+      <span className="cart-line-v" style={{ top: gap, bottom: gap, right: l1 - 1 }} />
+      {/* inner hairlines */}
+      <span className="cart-line-h cart-line-thin" style={{ left: gap, right: gap, top: l2 }} />
+      <span className="cart-line-h cart-line-thin" style={{ left: gap, right: gap, bottom: l2 }} />
+      <span className="cart-line-v cart-line-thin" style={{ top: gap, bottom: gap, left: l2 }} />
+      <span className="cart-line-v cart-line-thin" style={{ top: gap, bottom: gap, right: l2 }} />
+      {/* corners */}
+      <span className="absolute left-0 top-0"><CornerScroll size={corner} /></span>
+      <span className="absolute right-0 top-0 rotate-90"><CornerScroll size={corner} /></span>
+      <span className="absolute bottom-0 right-0 rotate-180"><CornerScroll size={corner} /></span>
+      <span className="absolute bottom-0 left-0 -rotate-90"><CornerScroll size={corner} /></span>
+      {props.finials ? (
+        <>
+          <span className="cart-fin" style={{ left: "50%", top: l1 - 8.5, transform: "translateX(-50%)" }}>
+            <Finial />
+          </span>
+          <span className="cart-fin" style={{ left: "50%", bottom: l1 - 8.5, transform: "translateX(-50%) rotate(180deg)" }}>
+            <Finial />
+          </span>
+          <span className="cart-fin" style={{ top: "50%", left: l1 - 30.5, transform: "translateY(-50%) rotate(-90deg)" }}>
+            <Finial />
+          </span>
+          <span className="cart-fin" style={{ top: "50%", right: l1 - 30.5, transform: "translateY(-50%) rotate(90deg)" }}>
+            <Finial />
+          </span>
+        </>
+      ) : null}
+    </span>
   );
 }
