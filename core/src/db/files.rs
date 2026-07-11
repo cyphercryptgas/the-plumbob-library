@@ -317,11 +317,12 @@ pub struct FileRow {
     pub depth: i64,
     pub modified_at_fs: Option<String>,
     pub mod_id: Option<i64>,
+    pub parse_status: Option<String>,
 }
 
 const FILE_ROW_COLUMNS: &str = "id, relative_path, absolute_path, current_filename, file_type,
     size_bytes, sha256, status, missing, zero_byte, deep_script, depth, modified_at_fs,
-    mod_id";
+    mod_id, parse_status";
 
 fn map_file_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<FileRow> {
     Ok(FileRow {
@@ -339,21 +340,45 @@ fn map_file_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<FileRow> {
         depth: r.get(11)?,
         modified_at_fs: r.get(12)?,
         mod_id: r.get(13)?,
+        parse_status: r.get(14)?,
     })
 }
 
-/// Paginated listing with optional case-insensitive substring search.
-/// Richer filter combinations arrive with the Library screen (plateau 4/5).
+/// Named status filters for the Library screen. Fixed SQL fragments only —
+/// the filter name never reaches SQL as data.
+fn filter_clause(filter: Option<&str>) -> Result<&'static str, DbError> {
+    Ok(match filter.unwrap_or("all") {
+        "all" | "" => "1=1",
+        "packages" => "file_type = 'package'",
+        "scripts" => "file_type = 'ts4script'",
+        "archives" => "file_type IN ('zip','rar','7z')",
+        "zero-byte" => "zero_byte = 1",
+        "deep-scripts" => "deep_script = 1",
+        "missing" => "missing = 1",
+        "quarantined" => "status = 'quarantined'",
+        "unreadable" => "parse_status IS NOT NULL AND parse_status != 'ok'",
+        other => {
+            return Err(DbError::Sqlite(rusqlite::Error::InvalidParameterName(
+                format!("unknown library filter: {other}"),
+            )))
+        }
+    })
+}
+
+/// Paginated listing with optional case-insensitive substring search and an
+/// optional named status filter.
 pub fn list_files(
     conn: &Connection,
     search: Option<&str>,
+    filter: Option<&str>,
     limit: i64,
     offset: i64,
 ) -> Result<Vec<FileRow>, DbError> {
+    let clause = filter_clause(filter)?;
     let sql = format!(
         "SELECT {FILE_ROW_COLUMNS}
          FROM files
-         WHERE (?1 IS NULL OR relative_path LIKE '%' || ?1 || '%')
+         WHERE (?1 IS NULL OR relative_path LIKE '%' || ?1 || '%') AND {clause}
          ORDER BY relative_path COLLATE NOCASE
          LIMIT ?2 OFFSET ?3"
     );
@@ -364,6 +389,20 @@ pub fn list_files(
         out.push(row?);
     }
     Ok(out)
+}
+
+/// Total row count for the same search + filter, for honest paging labels.
+pub fn count_files(
+    conn: &Connection,
+    search: Option<&str>,
+    filter: Option<&str>,
+) -> Result<i64, DbError> {
+    let clause = filter_clause(filter)?;
+    let sql = format!(
+        "SELECT COUNT(*) FROM files
+         WHERE (?1 IS NULL OR relative_path LIKE '%' || ?1 || '%') AND {clause}"
+    );
+    Ok(conn.query_row(&sql, params![search], |r| r.get(0))?)
 }
 
 /// Fetch specific rows by id (e.g. a quarantine selection). Order follows
@@ -626,12 +665,43 @@ mod tests {
             mk_file("BuildBuy/sofa.package", 10, 2, FileKind::Package),
         ]);
         reconcile_scan(db.conn_mut(), &r, "initial", &[]).unwrap();
-        let hair = list_files(db.conn(), Some("hair"), 50, 0).unwrap();
+        let hair = list_files(db.conn(), Some("hair"), None, 50, 0).unwrap();
         assert_eq!(hair.len(), 2);
-        let page = list_files(db.conn(), None, 2, 0).unwrap();
+        let page = list_files(db.conn(), None, None, 2, 0).unwrap();
         assert_eq!(page.len(), 2);
-        let rest = list_files(db.conn(), None, 2, 2).unwrap();
+        let rest = list_files(db.conn(), None, None, 2, 2).unwrap();
         assert_eq!(rest.len(), 1);
+    }
+
+    #[test]
+    fn named_filters_narrow_and_count_matches() {
+        let mut db = Database::open_in_memory().unwrap();
+        let mut zero = mk_file("empty.package", 0, 0, FileKind::Package);
+        zero.zero_byte = true;
+        let mut deep = mk_file("A/B/deep.ts4script", 10, 2, FileKind::Ts4Script);
+        deep.deep_script = true;
+        let r = report(vec![
+            zero,
+            deep,
+            mk_file("fine.package", 10, 0, FileKind::Package),
+            mk_file("bundle.zip", 10, 0, FileKind::ArchiveZip),
+        ]);
+        reconcile_scan(db.conn_mut(), &r, "initial", &[]).unwrap();
+
+        let zeroes = list_files(db.conn(), None, Some("zero-byte"), 50, 0).unwrap();
+        assert_eq!(zeroes.len(), 1);
+        assert_eq!(zeroes[0].relative_path, "empty.package");
+        assert_eq!(count_files(db.conn(), None, Some("zero-byte")).unwrap(), 1);
+
+        assert_eq!(
+            list_files(db.conn(), None, Some("deep-scripts"), 50, 0)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(count_files(db.conn(), None, Some("archives")).unwrap(), 1);
+        assert_eq!(count_files(db.conn(), None, Some("packages")).unwrap(), 2);
+        assert!(list_files(db.conn(), None, Some("nonsense"), 50, 0).is_err());
     }
 
     #[test]
