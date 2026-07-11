@@ -1,6 +1,6 @@
-import { PlumbobMark, Pill } from "./ui";
+import { Icon, Pill, PlumbobMark, type IconName } from "./ui";
 import { useApp } from "../state/AppContext";
-import { PRODUCT_NAME, PRODUCT_TAGLINE } from "../lib/product";
+import { PRODUCT_NAME } from "../lib/product";
 
 export type Route =
   | "dashboard"
@@ -12,19 +12,22 @@ export type Route =
   | "activity"
   | "settings";
 
-const NAV: { route: Route; label: string }[] = [
-  { route: "dashboard", label: "Dashboard" },
-  { route: "library", label: "Library" },
-  { route: "duplicates", label: "Duplicates" },
-  { route: "conflicts", label: "Conflicts" },
-  { route: "quarantine", label: "Quarantine" },
-  { route: "backups", label: "Backups" },
-  { route: "activity", label: "Activity" },
-  { route: "settings", label: "Settings" },
+const NAV: { route: Route; label: string; icon: IconName }[] = [
+  { route: "dashboard", label: "Dashboard", icon: "dashboard" },
+  { route: "library", label: "Library", icon: "library" },
+  { route: "duplicates", label: "Duplicates", icon: "duplicates" },
+  { route: "conflicts", label: "Conflicts", icon: "conflicts" },
+  { route: "quarantine", label: "Quarantine", icon: "quarantine" },
+  { route: "backups", label: "Backups", icon: "backups" },
+  { route: "activity", label: "Activity", icon: "activity" },
+  { route: "settings", label: "Settings", icon: "settings" },
 ];
 
 /** Honest labeling: planned features are visible but clearly not built. */
-const PLANNED = ["Patch Center", "Profiles"];
+const PLANNED: { label: string; icon: IconName }[] = [
+  { label: "Patch Center", icon: "calendar" },
+  { label: "Profiles", icon: "profiles" },
+];
 
 export function Sidebar(props: {
   route: Route;
@@ -42,21 +45,46 @@ export function Sidebar(props: {
     return null;
   };
 
+  // The name is one centralized literal; the lockup splits it visually.
+  const [brandFirst, ...brandRest] = PRODUCT_NAME.split(" ");
+
   return (
-    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-border-subtle bg-sidebar">
-      <div className="flex items-center gap-2.5 px-4 py-5">
-        <PlumbobMark />
-        <div className="min-w-0">
-          <div className="truncate font-display text-sm font-semibold text-sidebar-ink">
-            {PRODUCT_NAME}
-          </div>
-          <div className="text-[11px] text-sidebar-ink-muted">
-            {PRODUCT_TAGLINE}
-          </div>
+    <aside className="ml-sidebar relative flex h-full w-60 shrink-0 flex-col">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-2 rounded-xl border border-gold/25"
+      />
+      <Icon
+        name="sparkle"
+        size={11}
+        className="pointer-events-none absolute right-8 top-9 text-gold/50"
+      />
+      <Icon
+        name="sparkle"
+        size={8}
+        className="pointer-events-none absolute left-7 top-24 text-gold/40"
+      />
+      <Icon
+        name="sparkle"
+        size={7}
+        className="pointer-events-none absolute right-12 top-44 text-gold/30"
+      />
+
+      <div className="relative flex flex-col items-center px-4 pb-4 pt-7 text-center">
+        <PlumbobMark size={84} />
+        <div className="mt-2 font-display text-[22px] font-semibold leading-tight text-sidebar-ink">
+          {brandFirst}
         </div>
+        <div className="mt-0.5 text-[11px] font-semibold uppercase tracking-[0.4em] text-gold">
+          {brandRest.join(" ")}
+        </div>
+        <span
+          aria-hidden="true"
+          className="mt-4 h-px w-4/5 bg-gradient-to-r from-transparent via-gold/50 to-transparent"
+        />
       </div>
 
-      <nav className="flex-1 space-y-0.5 px-2" aria-label="Main">
+      <nav className="relative flex-1 space-y-0.5 overflow-y-auto px-3" aria-label="Main">
         {NAV.map((item) => {
           const active = props.route === item.route;
           const count = badge(item.route);
@@ -68,11 +96,18 @@ export function Sidebar(props: {
               aria-current={active ? "page" : undefined}
               className={`flex w-full items-center justify-between rounded-control px-3 py-2 text-left text-sm transition-colors ${
                 active
-                  ? "bg-sidebar-active font-semibold text-sidebar-ink shadow-card"
+                  ? "bg-sidebar-active font-semibold text-sidebar-ink shadow-[0_0_14px_rgba(201,164,92,0.18)] ring-1 ring-gold/30"
                   : "text-sidebar-ink-muted hover:bg-sidebar-hover hover:text-sidebar-ink"
               }`}
             >
-              <span>{item.label}</span>
+              <span className="flex items-center gap-2.5">
+                <Icon
+                  name={item.icon}
+                  size={17}
+                  className={active ? "text-gold" : "opacity-80"}
+                />
+                {item.label}
+              </span>
               {count !== null ? <Pill tone="rose">{count}</Pill> : null}
             </button>
           );
@@ -81,19 +116,22 @@ export function Sidebar(props: {
         <div className="pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider text-sidebar-ink-muted">
           Planned
         </div>
-        {PLANNED.map((label) => (
+        {PLANNED.map((item) => (
           <div
-            key={label}
+            key={item.label}
             className="flex w-full cursor-not-allowed items-center justify-between rounded-control px-3 py-2 text-sm text-sidebar-ink-muted opacity-80"
             title="Not built yet — listed so the roadmap is honest, not to look finished."
           >
-            <span>{label}</span>
+            <span className="flex items-center gap-2.5">
+              <Icon name={item.icon} size={17} className="opacity-70" />
+              {item.label}
+            </span>
             <Pill tone="neutral">soon</Pill>
           </div>
         ))}
       </nav>
 
-      <div className="border-t border-sidebar-hover px-4 py-3 text-xs text-sidebar-ink-muted">
+      <div className="relative border-t border-sidebar-hover px-4 py-3 text-xs text-sidebar-ink-muted">
         <div className="flex items-center gap-2">
           <span
             aria-hidden="true"
