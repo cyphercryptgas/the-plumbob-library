@@ -21,10 +21,12 @@ typography follow the mockups exactly.
 * **Name:** Motherlode Manager (centralized in exactly three literals:
   `core/src/product.rs`, `src/lib/product.ts`, `tauri.conf.json`).
 * **Tagline:** "Your mods. Organized. Precious."
-* **Logo:** the treasure-chest-and-crystal art, true-alpha master at
-  `src/assets/logo-master.png` (extracted from the approved render; a
-  regenerated native-transparency master may replace it byte-for-byte).
-  The Windows icon set is this art floating free — never on a tile.
+* **Logo & app icon:** the treasure-chest-and-crystal art, one mark
+  everywhere — sidebar lockup, onboarding, notices, Windows icon set,
+  taskbar, and installer. True-alpha master at
+  `src/assets/logo-master.png` (regenerated 2026-07-11 from the corrected
+  clean-background export). Always floats on true transparency — never
+  on a tile.
 
 ## Palette (CSS custom properties in `src/styles/tokens.css`)
 
