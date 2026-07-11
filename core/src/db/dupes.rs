@@ -4,6 +4,7 @@
 
 use super::{parse_rfc3339, DbError};
 use crate::duplicates::{DuplicateGroup, FileFacts};
+use serde::Serialize;
 use rusqlite::{params, Connection};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -214,6 +215,71 @@ pub fn list_open_exact_groups(conn: &Connection) -> Result<Vec<DuplicateGroupVie
     Ok(groups)
 }
 
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuspectedMember {
+    pub file_id: i64,
+    pub relative_path: String,
+    pub size_bytes: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuspectedDuplicateGroup {
+    pub file_name: String,
+    pub members: Vec<SuspectedMember>,
+}
+
+/// The lower-confidence tier below exact duplicates: packages sharing a
+/// file name but carrying **different** content. Same-name-same-content
+/// pairs are exact duplicates and are deliberately excluded — this list is
+/// for "probably versions of the same thing" situations the user should
+/// eyeball, and the interface labels it as lower confidence.
+pub fn list_suspected_duplicates(
+    conn: &Connection,
+) -> Result<Vec<SuspectedDuplicateGroup>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT f.id, f.current_filename, f.relative_path, f.size_bytes
+         FROM files f
+         WHERE f.file_type = 'package' AND f.status = 'current'
+           AND f.missing = 0 AND f.sha256 IS NOT NULL
+           AND lower(f.current_filename) IN (
+                SELECT lower(current_filename) FROM files
+                WHERE file_type = 'package' AND status = 'current'
+                  AND missing = 0 AND sha256 IS NOT NULL
+                GROUP BY lower(current_filename)
+                HAVING COUNT(DISTINCT sha256) > 1)
+         ORDER BY lower(f.current_filename), f.relative_path COLLATE NOCASE",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, i64>(3)?,
+        ))
+    })?;
+
+    let mut groups: Vec<SuspectedDuplicateGroup> = Vec::new();
+    for row in rows {
+        let (file_id, name, relative_path, size_bytes) = row?;
+        let member = SuspectedMember {
+            file_id,
+            relative_path,
+            size_bytes,
+        };
+        match groups.last_mut() {
+            Some(g) if g.file_name.eq_ignore_ascii_case(&name) => g.members.push(member),
+            _ => groups.push(SuspectedDuplicateGroup {
+                file_name: name,
+                members: vec![member],
+            }),
+        }
+    }
+    Ok(groups)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -380,5 +446,34 @@ mod tests {
         let facts = load_file_facts(db.conn()).unwrap();
         assert_eq!(facts.len(), 2);
         assert!(group_exact(&facts).is_empty());
+    }
+
+    #[test]
+    fn suspected_duplicates_are_same_name_different_content() {
+        let db = Database::open_in_memory().unwrap();
+        let seed = |name: &str, rel: &str, sha: &str| {
+            db.conn()
+                .execute(
+                    "INSERT INTO files (current_filename, absolute_path, relative_path,
+                                        file_type, sha256, size_bytes,
+                                        first_seen_at, last_seen_at)
+                     VALUES (?1, ?2, ?3, 'package', ?4, 10, 't', 't')",
+                    params![name, format!("/m/{rel}"), rel, sha],
+                )
+                .unwrap();
+        };
+        // Same name, different content: suspected.
+        seed("hair.package", "New/hair.package", "aaa");
+        seed("hair.package", "Old CC/hair.package", "bbb");
+        // Same name, identical content: exact-duplicate territory, excluded.
+        seed("wall.package", "A/wall.package", "ccc");
+        seed("wall.package", "B/wall.package", "ccc");
+        // Unique name: nothing suspicious.
+        seed("lamp.package", "C/lamp.package", "ddd");
+
+        let groups = list_suspected_duplicates(db.conn()).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert!(groups[0].file_name.eq_ignore_ascii_case("hair.package"));
+        assert_eq!(groups[0].members.len(), 2);
     }
 }
