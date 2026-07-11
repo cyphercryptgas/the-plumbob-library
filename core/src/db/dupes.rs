@@ -5,7 +5,7 @@
 use super::{parse_rfc3339, DbError};
 use crate::duplicates::{DuplicateGroup, FileFacts};
 use rusqlite::{params, Connection};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 /// Facts for every present (non-missing, non-quarantined) file.
@@ -50,8 +50,17 @@ pub fn load_file_facts(conn: &Connection) -> Result<Vec<FileFacts>, DbError> {
     Ok(out)
 }
 
-/// Replace all *open* exact groups with the freshly computed set. Groups the
-/// user has already resolved or dismissed (any other status) are preserved.
+/// Replace all *open* exact groups with the freshly computed set.
+///
+/// Standing user decisions are honored two different ways:
+/// * **dismissed** means "I know — leave these alone": re-detection must
+///   never resurrect that fingerprint as a fresh open group, so dismissed
+///   sha256s are skipped here. Their rows survive as history.
+/// * **resolved** means "handled": if the duplicate physically returns
+///   (e.g. a quarantined copy is restored), the group legitimately reopens
+///   as a new open group.
+///
+/// Returns the number of open groups actually inserted.
 pub fn replace_exact_groups(
     conn: &mut Connection,
     groups: &[DuplicateGroup],
@@ -61,6 +70,19 @@ pub fn replace_exact_groups(
         "DELETE FROM duplicate_groups WHERE duplicate_type = 'exact' AND status = 'open'",
         [],
     )?;
+    let mut dismissed: HashSet<String> = HashSet::new();
+    {
+        let mut stmt = tx.prepare(
+            "SELECT DISTINCT sha256 FROM duplicate_groups
+             WHERE duplicate_type = 'exact' AND status = 'dismissed'
+               AND sha256 IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        for row in rows {
+            dismissed.insert(row?);
+        }
+    }
+    let mut inserted = 0usize;
     {
         let mut insert_group = tx.prepare(
             "INSERT INTO duplicate_groups (duplicate_type, confidence, status, created_at,
@@ -73,6 +95,10 @@ pub fn replace_exact_groups(
         )?;
         let now = super::now_rfc3339();
         for g in groups {
+            if dismissed.contains(&g.sha256) {
+                continue;
+            }
+            inserted += 1;
             insert_group.execute(params![
                 now,
                 g.sha256,
@@ -88,7 +114,7 @@ pub fn replace_exact_groups(
         }
     }
     tx.commit()?;
-    Ok(groups.len())
+    Ok(inserted)
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -313,6 +339,32 @@ mod tests {
         let open = list_open_exact_groups(db.conn()).unwrap();
         set_group_status(db.conn(), open[0].id, "resolved").unwrap();
         assert!(list_open_exact_groups(db.conn()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn dismissed_groups_do_not_reopen_on_rescan() {
+        // Regression (found in demo-library validation): re-detection after
+        // a rescan must not resurrect a dismissed fingerprint as a fresh
+        // open group — "Dismiss" is a standing decision.
+        let mut db = seeded_db();
+        let facts = load_file_facts(db.conn()).unwrap();
+        let groups = group_exact(&facts);
+        replace_exact_groups(db.conn_mut(), &groups).unwrap();
+        let open = list_open_exact_groups(db.conn()).unwrap();
+        set_group_status(db.conn(), open[0].id, "dismissed").unwrap();
+
+        let inserted = replace_exact_groups(db.conn_mut(), &groups).unwrap();
+        assert_eq!(inserted, 0, "dismissed fingerprint must not be re-inserted");
+        assert!(list_open_exact_groups(db.conn()).unwrap().is_empty());
+        let dismissed: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM duplicate_groups WHERE status = 'dismissed'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(dismissed, 1, "the dismissal itself survives as history");
     }
 
     #[test]
