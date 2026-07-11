@@ -62,6 +62,7 @@ export interface FileRow {
   depth: number;
   modifiedAtFs: string | null;
   modId: number | null;
+  parseStatus: string | null;
 }
 
 export interface DuplicateMemberView {
@@ -134,7 +135,7 @@ export interface BackupEntryView {
 }
 
 export interface ScanProgressEvent {
-  phase: "scanning" | "hashing";
+  phase: "scanning" | "hashing" | "parsing";
   filesSeen: number;
   bytesSeen: number;
   hashed: number;
@@ -151,6 +152,8 @@ export interface ScanOutcome {
   hashedFiles: number;
   hashErrors: number;
   duplicateGroups: number;
+  packagesParsed: number;
+  parseErrors: number;
   scanErrors: number;
   cancelled: boolean;
   durationMs: number;
@@ -175,4 +178,50 @@ export interface QuarantineOutcomeDto {
   failed: FailedStep[];
   haltedEarly: boolean;
   reclaimedBytes: number;
+}
+
+export type LibraryFilter =
+  | "all"
+  | "packages"
+  | "scripts"
+  | "archives"
+  | "zero-byte"
+  | "deep-scripts"
+  | "missing"
+  | "quarantined"
+  | "unreadable";
+
+export interface ConflictMember {
+  fileId: number;
+  relativePath: string;
+  absolutePath: string;
+}
+
+export interface ConflictKey {
+  typeId: number;
+  tgi: string;
+  typeName: string | null;
+  presentationOnly: boolean;
+}
+
+export interface ConflictGroup {
+  /** Ordered by relative path (case-insensitive) — the community-understood
+   * load order. The last member is the presumptive winner. */
+  members: ConflictMember[];
+  sharedKeyCount: number;
+  sampleKeys: ConflictKey[];
+  severity: "gameplay" | "presentation";
+  likelyIntentional: boolean;
+}
+
+export interface SuspectedMember {
+  fileId: number;
+  relativePath: string;
+  absolutePath: string;
+  sizeBytes: number;
+}
+
+export interface SuspectedDuplicateGroup {
+  fileName: string;
+  members: SuspectedMember[];
 }
