@@ -71,7 +71,7 @@ export function Sidebar(props: {
       />
 
       <div className="relative flex flex-col items-center px-4 pb-4 pt-7 text-center">
-        <PlumbobMark size={84} />
+        <PlumbobMark size={92} />
         <div className="mt-2 font-display text-[22px] font-semibold leading-tight text-sidebar-ink">
           {brandFirst}
         </div>
@@ -96,7 +96,7 @@ export function Sidebar(props: {
               aria-current={active ? "page" : undefined}
               className={`flex w-full items-center justify-between rounded-control px-3 py-2 text-left text-sm transition-colors ${
                 active
-                  ? "bg-sidebar-active font-semibold text-sidebar-ink shadow-[0_0_14px_rgba(201,164,92,0.18)] ring-1 ring-gold/30"
+                  ? "nav-active font-semibold text-sidebar-ink"
                   : "text-sidebar-ink-muted hover:bg-sidebar-hover hover:text-sidebar-ink"
               }`}
             >

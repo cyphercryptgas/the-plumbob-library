@@ -8,7 +8,7 @@ import mark from "../assets/mark.png";
 export function Card(props: { children: ReactNode; className?: string }) {
   return (
     <section
-      className={`rounded-card border border-border-subtle bg-surface p-5 shadow-card ${props.className ?? ""}`}
+      className={`elev-card rounded-card border border-border-subtle p-5 ${props.className ?? ""}`}
     >
       {props.children}
     </section>
@@ -38,7 +38,7 @@ type ButtonVariant = "primary" | "soft" | "quiet" | "danger";
 
 const buttonStyles: Record<ButtonVariant, string> = {
   primary:
-    "bg-sage text-white shadow-[0_5px_14px_rgba(20,80,58,0.24)] hover:bg-sage-deep hover:shadow-[0_6px_16px_rgba(20,80,58,0.32)] disabled:bg-border-strong disabled:text-ink-muted disabled:shadow-none",
+    "btn-jewel text-white disabled:bg-border-strong disabled:text-ink-muted disabled:shadow-none",
   soft: "bg-sage-soft text-sage-deep hover:bg-sage hover:text-white disabled:opacity-50",
   quiet:
     "bg-transparent text-ink-secondary hover:bg-soft disabled:opacity-50",
@@ -207,10 +207,12 @@ export function Stat(props: {
   icon?: IconName;
 }) {
   return (
-    <div className="rounded-card border border-border-subtle bg-surface px-4 py-3 shadow-card">
+    <div className="gold-edge-card rounded-card px-4 py-3">
       <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-ink-muted">
         {props.icon ? (
-          <Icon name={props.icon} size={15} className="text-gold-deep" />
+          <span className="icon-chip flex h-7 w-7 items-center justify-center rounded-lg">
+            <Icon name={props.icon} size={15} className="text-gold-deep" />
+          </span>
         ) : null}
         {props.label}
       </div>
@@ -230,7 +232,7 @@ export function PlumbobMark(props: { size?: number }) {
       height={s}
       alt=""
       aria-hidden="true"
-      className="shrink-0 drop-shadow-[0_3px_12px_rgba(52,199,123,0.35)]"
+      className="shrink-0 drop-shadow-[0_0_18px_rgba(72,214,140,0.45)] drop-shadow-[0_6px_12px_rgba(0,0,0,0.35)]"
     />
   );
 }
@@ -439,7 +441,15 @@ function Flourish(props: { className?: string }) {
 export function OrnamentalFrame() {
   return (
     <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 text-gold/70">
-      <div className="absolute inset-2 rounded-[14px] border border-gold/40" />
+      <div
+        className="absolute inset-2 rounded-[14px] shadow-[0_0_22px_rgba(201,164,92,0.14)]"
+        style={{
+          border: "1px solid transparent",
+          backgroundImage: "linear-gradient(#0000,#0000), var(--gold-grad-soft)",
+          backgroundClip: "padding-box, border-box",
+          backgroundOrigin: "padding-box, border-box",
+        }}
+      />
       <div className="absolute inset-[13px] rounded-[10px] border border-gold/20" />
       <Flourish className="absolute left-1 top-1" />
       <Flourish className="absolute right-1 top-1 rotate-90" />

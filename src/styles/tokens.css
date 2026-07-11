@@ -46,7 +46,13 @@
   --gold: #c9a45c;
   --gold-deep: #8a6b2e;
 
-  --font-display: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+  --font-display: "Playfair Display", ui-serif, Georgia, Cambria,
+    "Times New Roman", serif;
+
+  /* Metallic gold — used as a border-image via the padding-box/border-box
+     technique so edges read as metal, not flat paint. */
+  --gold-grad: linear-gradient(135deg, #ecd9a0 0%, #c9a45c 42%, #97762f 100%);
+  --gold-grad-soft: linear-gradient(135deg, #e6d3a0 0%, #cfae6a 50%, #b08c42 100%);
 }
 
 html,
@@ -58,6 +64,13 @@ body,
 body {
   margin: 0;
   background-color: var(--background-app);
+  background-image: radial-gradient(
+    130% 100% at 50% 0%,
+    #f7f1e2 0%,
+    var(--background-app) 55%,
+    #efe5cf 100%
+  );
+  background-attachment: fixed;
   color: var(--text-primary);
   font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial,
     sans-serif;
@@ -109,4 +122,109 @@ h1 {
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ------------------------------------------------------------------ */
+/* Motherlode material system: raised, lit, gilded.                    */
+/* Every rule here is layered light — gradient surface + inner top     */
+/* highlight + soft ambient shadow (+ glow where something is active). */
+/* ------------------------------------------------------------------ */
+
+@layer components {
+  /* Lit card surface. */
+  .elev-card {
+    background-image: linear-gradient(180deg, #fffef9 0%, #fcf6e9 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 1px 2px rgba(74, 60, 32, 0.05),
+      0 12px 26px -14px rgba(74, 60, 32, 0.22);
+  }
+
+  /* Metallic gold edge on any element (pair with a solid/gradient fill). */
+  .gold-edge {
+    border: 1px solid transparent;
+    background-clip: padding-box, border-box;
+    background-origin: padding-box, border-box;
+  }
+  .gold-edge-card {
+    border: 1px solid transparent;
+    background-image: linear-gradient(180deg, #fffef9 0%, #fcf6e9 100%),
+      var(--gold-grad-soft);
+    background-clip: padding-box, border-box;
+    background-origin: padding-box, border-box;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 1px 2px rgba(74, 60, 32, 0.05),
+      0 12px 26px -14px rgba(74, 60, 32, 0.25);
+  }
+
+  /* Raised jewel button — the emerald primary. */
+  .btn-jewel {
+    background-image: linear-gradient(180deg, #2a7a56 0%, #1a5c40 100%);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.28),
+      0 1px 2px rgba(16, 56, 40, 0.35),
+      0 9px 20px -7px rgba(26, 92, 64, 0.55);
+  }
+  .btn-jewel:hover:not(:disabled) {
+    background-image: linear-gradient(180deg, #2f8760 0%, #1e6647 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.32),
+      0 1px 2px rgba(16, 56, 40, 0.4),
+      0 11px 24px -7px rgba(26, 92, 64, 0.62);
+  }
+  .btn-jewel:disabled {
+    background-image: none;
+  }
+
+  /* Sidebar: lit from above, vignetted at the edges, like the renders. */
+  .ml-sidebar {
+    background-image: radial-gradient(
+      130% 95% at 50% 0%,
+      #1c5b3e 0%,
+      #12432e 42%,
+      #0a2e1f 100%
+    );
+    box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.28);
+  }
+
+  /* Glowing active navigation pill. */
+  .nav-active {
+    border: 1px solid transparent;
+    background-image: linear-gradient(180deg, #2d6a4b 0%, #1d4f37 100%),
+      var(--gold-grad-soft);
+    background-clip: padding-box, border-box;
+    background-origin: padding-box, border-box;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 0 18px rgba(201, 164, 92, 0.35),
+      0 4px 12px -4px rgba(0, 0, 0, 0.5);
+  }
+
+  /* Gold icon chip used on stat cards. */
+  .icon-chip {
+    border: 1px solid transparent;
+    background-image: linear-gradient(180deg, #f9efd7 0%, #f1e2bd 100%),
+      var(--gold-grad-soft);
+    background-clip: padding-box, border-box;
+    background-origin: padding-box, border-box;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.8),
+      0 2px 5px -2px rgba(120, 92, 40, 0.45);
+  }
+
+  /* Raised badge/pill. */
+  .raised-pill {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.55),
+      0 1px 2px rgba(74, 60, 32, 0.14);
+  }
+}
+
+/* Gilded scrollbar, now metallic. */
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #d8bd7e, #b08c42);
+  border-radius: 8px;
+  border: 3px solid var(--background-app);
 }
