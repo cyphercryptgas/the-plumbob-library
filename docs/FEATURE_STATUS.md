@@ -2,7 +2,7 @@
 
 Statuses: **Complete** · **Partial** · **Scaffolded** · **Not implemented** · **Requires external credentials** · **Experimental**
 
-Updated: Phase 2 plateau 2 (package-resource storage, incremental parse pass, conflict detection — core only; no interface yet). This file is updated at the end
+Updated: Phase 2 plateau 3 — Phase 2 complete (Conflicts screen live, suspected duplicates, Library filters, parse pass wired into scans). This file is updated at the end
 of every plateau and never claims more than what the test suite and a running
 build actually demonstrate.
 
@@ -78,6 +78,9 @@ shallow and fixable from the Actions log.
 | Package-resource storage & incremental parse pass | Complete (core) | migration 0003, `core/src/db/packages.rs`; content-keyed staleness, cancel-safe resumable pass; realistic end-to-end tests on real DBPF bytes |
 | Resource-conflict detection (queries + noise policy) | Complete (core) | identical-content overlaps routed to Duplicates; presentation-only overlaps low severity; same-folder/same-mod flagged likely intentional; name-based load-order approximation |
 | Suspected duplicates (same name, different content) | Complete (core) | `list_suspected_duplicates`; exact-content pairs excluded by design |
-| Conflicts screen, suspected-duplicates section, Library filters | Not implemented (Phase 2, plateau 3) |
+| Parse pass in the scan pipeline | Complete | new "parsing" phase with progress events; file IO outside the DB lock; outcome reports packages indexed / unreadable |
+| Conflicts screen | Complete | needs-a-look vs probably-fine split, load-order display with presumptive winner, sample keys, honest caveats (index-level analysis; ts4script not analyzable) |
+| Suspected duplicates section (Duplicate Center) | Complete | display + Reveal only — no set-aside from the lower-confidence tier by design |
+| Library status filters | Complete | All / Packages / Scripts / Archives / Zero-byte / Deep scripts / Missing / Quarantined / Unreadable, with honest filtered totals |
 | CurseForge provider | Not implemented — Requires external credentials (Phase 3) |
 | Patch Center, 50/50 assistant, Profiles, Merging | Not implemented (Phases 3–5) |
