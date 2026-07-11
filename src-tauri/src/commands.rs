@@ -180,6 +180,7 @@ pub fn get_library_counts(state: State<'_, AppState>) -> UiResult<db::files::Lib
 pub fn list_files(
     state: State<'_, AppState>,
     search: Option<String>,
+    filter: Option<String>,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> UiResult<Vec<db::files::FileRow>> {
@@ -187,10 +188,22 @@ pub fn list_files(
     db::files::list_files(
         guard.conn(),
         search.as_deref(),
+        filter.as_deref(),
         limit.unwrap_or(200).clamp(1, 1000),
         offset.unwrap_or(0).max(0),
     )
     .map_err(service::err_str)
+}
+
+#[tauri::command]
+pub fn count_files(
+    state: State<'_, AppState>,
+    search: Option<String>,
+    filter: Option<String>,
+) -> UiResult<i64> {
+    let guard = service::lock_db(&state.db)?;
+    db::files::count_files(guard.conn(), search.as_deref(), filter.as_deref())
+        .map_err(service::err_str)
 }
 
 #[tauri::command]
@@ -199,6 +212,22 @@ pub fn list_duplicate_groups(
 ) -> UiResult<Vec<db::dupes::DuplicateGroupView>> {
     let guard = service::lock_db(&state.db)?;
     db::dupes::list_open_exact_groups(guard.conn()).map_err(service::err_str)
+}
+
+#[tauri::command]
+pub fn list_conflicts(
+    state: State<'_, AppState>,
+) -> UiResult<Vec<db::packages::ConflictGroup>> {
+    let guard = service::lock_db(&state.db)?;
+    db::packages::list_conflict_groups(guard.conn()).map_err(service::err_str)
+}
+
+#[tauri::command]
+pub fn list_suspected_duplicates(
+    state: State<'_, AppState>,
+) -> UiResult<Vec<db::dupes::SuspectedDuplicateGroup>> {
+    let guard = service::lock_db(&state.db)?;
+    db::dupes::list_suspected_duplicates(guard.conn()).map_err(service::err_str)
 }
 
 #[tauri::command]
