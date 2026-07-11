@@ -1,13 +1,13 @@
-# The Plumbob Library
+# Motherlode Manager\n\n> Formerly *Motherlode Manager* — renamed in v0.2.0. All data, internals, and the on-disk identity (`com.moetech.plumbob`) are unchanged; existing libraries carry over untouched.
 
-**A safer home for your Sims 4 mods and custom content.**
+**Your mods. Organized. Precious. — a safety-first manager for Sims 4 mods and custom content.**
 
 A Windows-first desktop application (Tauri 2 + Rust + React/TypeScript +
 SQLite) for scanning, inventorying, organizing, quarantining, backing up, and
 restoring large Sims 4 Mods folders — built safety-first: every mutation is
 planned, previewed, backed up, hash-verified, journaled, and reversible.
 
-> The Plumbob Library is an independent community tool and is not affiliated
+> Motherlode Manager is an independent community tool and is not affiliated
 > with or endorsed by Electronic Arts, Maxis, The Sims, Overwolf, CurseForge,
 > or individual mod creators.
 
