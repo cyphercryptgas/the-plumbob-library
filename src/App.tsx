@@ -2,7 +2,7 @@ import { useState } from "react";
 import { isTauri } from "./lib/tauri";
 import { AppProvider, useApp } from "./state/AppContext";
 import { Sidebar, type Route } from "./components/Sidebar";
-import { Banner } from "./components/ui";
+import { Banner, OrnamentalFrame } from "./components/ui";
 import { BrowserNotice } from "./screens/BrowserNotice";
 import { Onboarding } from "./screens/Onboarding";
 import { Dashboard } from "./screens/Dashboard";
@@ -65,14 +65,18 @@ function Shell() {
   return (
     <div className="flex h-full bg-app">
       <Sidebar route={route} onNavigate={setRoute} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-border-subtle bg-surface px-6 py-3">
-          <h1 className="text-base font-semibold text-ink">{TITLES[route]}</h1>
-          {scan.running ? (
-            <span className="text-xs text-ink-muted">Scan in progress…</span>
-          ) : null}
-        </header>
-        <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="flex min-w-0 flex-1 flex-col p-3">
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <OrnamentalFrame />
+          <div className="min-h-0 flex-1 overflow-y-auto px-10 py-8">
+            <div className="mb-5 flex items-baseline justify-between">
+              <h1 className="text-[30px] font-semibold text-ink">
+                {TITLES[route]}
+              </h1>
+              {scan.running ? (
+                <span className="text-xs text-ink-muted">Scan in progress…</span>
+              ) : null}
+            </div>
           {error ? (
             <div className="mb-4">
               <Banner tone="danger" onDismiss={clearError}>
@@ -80,7 +84,8 @@ function Shell() {
               </Banner>
             </div>
           ) : null}
-          <Screen route={route} onNavigate={setRoute} />
+            <Screen route={route} onNavigate={setRoute} />
+          </div>
         </div>
       </div>
     </div>
