@@ -16,7 +16,7 @@ to produce identical schemas.
 * Foreign keys ON per connection; WAL journal on file-backed databases;
   every multi-row mutation is one transaction.
 
-## Table groups (18 tables, migration 0001)
+## Table groups (19 tables; migrations 0001 + 0003)
 
 * **Inventory** — `files` (per-file truth: paths, type, size, sha256, fs
   timestamps, first/last seen, flags `missing`/`zero_byte`/`deep_script`,
@@ -32,6 +32,14 @@ to produce identical schemas.
 * **Operations & safety** — `operations` (integer PK + unique
   `operation_uid` string from the journal), `operation_steps`, `backups` ↔
   `operations` linked both ways, `backup_entries`, `quarantine_entries`.
+* **Package awareness (migration 0003)** — `package_resources`
+  (file_id → resource type/group/instance; `ON DELETE CASCADE`; instance is
+  a u64 bit-cast into SQLite's signed INTEGER, which preserves equality —
+  display always uses the hex TGI form), plus parse bookkeeping columns on
+  `files`: `parsed_sha256`, `parse_status`, `parse_error`. Parse staleness
+  is **content-keyed**: a package re-parses only when its sha256 no longer
+  matches `parsed_sha256`, so unchanged files cost nothing and a corrupt
+  file is retried only if its bytes change.
 * **Settings** — key/value `TEXT`, but accessed only through the typed
   `AppSettings` struct (one parser/serializer per key; corrupt values fall
   back to defaults; unknown keys ignored for forward compatibility).
