@@ -88,3 +88,25 @@ h1 {
     scroll-behavior: auto !important;
   }
 }
+
+/* Sidebar surface — deep emerald gradient per the design spec. */
+.ml-sidebar {
+  background: linear-gradient(180deg, #154a33 0%, #0c3021 100%);
+}
+
+/* Gilded scrollbar. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+  border: 3px solid var(--background-app);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gold);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
