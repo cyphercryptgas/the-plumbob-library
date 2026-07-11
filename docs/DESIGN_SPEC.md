@@ -38,29 +38,43 @@ sidebar ink `#f3edda` (muted `#c7bc97`) · success `#2f7d4f` ·
 warning `#8a6420` · danger `#a94438`. Token *names* are semantic and
 stable; only values change with themes.
 
-## Chrome rules
+## Chrome rules (v7 treatment, approved 2026-07-11)
 
-* **Gilded frame:** the content region sits inside a double gold hairline
-  (40% / 20% opacity) with corner flourishes (`OrnamentalFrame` in
-  `ui.tsx`). The frame never scrolls; content scrolls within it.
-* **Sidebar:** emerald gradient, inner gold hairline inset, three gold
-  sparkles, centered logo lockup — 84px mark, first word of the product
-  name in display serif 22px cream, remaining words letterspaced (0.4em)
-  gold small caps, gold gradient divider beneath. Nav items carry 17px
-  line icons; the active item uses the raised emerald pill with a gold
-  ring and soft gold glow, icon in gold. Planned features remain visible,
-  icon-bearing, and honestly disabled.
-* **Typography:** page titles 30px display serif (`ui-serif, Georgia`
-  stack); section titles small-caps with a gold rule flowing to the right;
-  body remains the system sans stack.
-* **Cards:** warm-white surface, tan hairline border, 10px radius, soft
-  shadow. Stat cards carry a 15px gold line icon beside the small-caps
-  label.
-* **Buttons:** primary is emerald with a soft green lift-shadow; the
-  dangerous option is never the visual default.
-* **Icons:** the hand-drawn 24×24 stroke set in `ui.tsx` (`Icon`),
-  1.7px round caps. New icons join that set — no external icon fonts.
-* **Scrollbars:** thin, tan thumb, gold on hover.
+* **Cartouche frames:** every major surface — sidebar, hero cards, dark
+  panels — wears the gilded cartouche: engraved double edge lines flowing
+  into scroll-work corners (twin volutes, acanthus sweep, rosette), with
+  spliced jewel finials at edge midpoints on hero elements. Frames are
+  zero-layout overlays (`CartoucheFrame` in `ui.tsx`).
+  *Engineering constraints, verified by measurement:* frames are built
+  from primitives (edge lines as divs whose engraved relief comes from
+  background + offset shadows; corners as fixed-size SVGs) — **never**
+  CSS `border-image` for long edges, and **never** a `filter` on the
+  frame layer; both cause rasterizers to drop edge segments on large
+  elements (15% vs 96–100% edge coverage in testing).
+* **Texture:** a generated grain tile overlays the canvas (multiply),
+  cards (multiply), and dark surfaces (screen). Dark surfaces also carry
+  the diamond lattice and a slow light sweep (reduced-motion safe).
+* **Sidebar:** floating gilded panel on the padded canvas — radial-lit
+  emerald, full cartouche frame with finials, 64-star twinkling field,
+  20-node constellation, two ghosted crystal watermarks, light sweep.
+  Brand lockup: 104px mark over a green halo, first word of the product
+  name in display serif 26px, remaining words letterspaced gold between
+  ✦ marks, glowing divider. Nav labels in the display serif; hover gets
+  the gold outline glow; the active pill is translucent emerald with a
+  metallic gradient rim so the constellation reads through it.
+* **Typography:** Playfair Display (bundled via @fontsource) — page
+  titles 32px bold with an ivory lift, section titles small-caps serif
+  led by a glowing ✦ and trailed by a glowing gold rule, stat values in
+  serif.
+* **Cards:** lit gradient surface, ivory inner bevel, deep ambient
+  shadow, grain overlay, cartouche frame by default (`frame={false}` to
+  opt out in dense contexts; `finials` for hero cards).
+* **Stat tiles:** gilded-edge tiles, centered — beveled gold medallion
+  (radial metal, specular sweep, engraved icon) above a small-caps label
+  and a serif value.
+* **Buttons:** the emerald jewel (gradient, inner highlight, green
+  lift-shadow). Icons remain the hand-drawn 24×24 stroke set.
+* **Scrollbars:** metallic gradient thumb, gold on hover.
 
 ## Future screens — exact parameters (build when the data exists)
 
