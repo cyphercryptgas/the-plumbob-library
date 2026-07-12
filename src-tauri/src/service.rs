@@ -143,6 +143,15 @@ pub fn run_scan_pipeline(
     let started = std::time::Instant::now();
     let roots = {
         let guard = lock_db(dbm)?;
+        if let Some(id) =
+            db::troubleshoot::active_session_id(guard.conn()).map_err(err_str)?
+        {
+            return Err(format!(
+                "Troubleshooting session #{id} is active. Finish or abort the \
+                 hunt before scanning — a scan would mark the set-aside half \
+                 of your library as missing."
+            ));
+        }
         resolve_roots(&guard, data_dir)?
     };
     let opts = ScanOptions {
@@ -604,6 +613,67 @@ fn troubleshoot_holding_root(data_dir: &Path) -> UiResult<SafeRoot> {
     SafeRoot::new(&path).map_err(err_str)
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct TroubleshootProgress {
+    done: usize,
+    total: usize,
+}
+
+/// Collects journal events for later persistence while streaming progress to
+/// the interface — a round on a large library reads gigabytes for hash
+/// verification, and silence would look like a freeze.
+struct EmittingJournal<'a> {
+    app: &'a AppHandle,
+    events: Vec<plumbob_core::ops::JournalEvent>,
+    total: usize,
+    done: usize,
+    last_emit: std::time::Instant,
+}
+
+impl<'a> EmittingJournal<'a> {
+    fn new(app: &'a AppHandle) -> Self {
+        Self {
+            app,
+            events: Vec::new(),
+            total: 0,
+            done: 0,
+            last_emit: std::time::Instant::now(),
+        }
+    }
+    fn emit(&mut self, force: bool) {
+        if force || self.last_emit.elapsed().as_millis() >= 150 {
+            let _ = self.app.emit(
+                "troubleshoot://progress",
+                TroubleshootProgress {
+                    done: self.done,
+                    total: self.total,
+                },
+            );
+            self.last_emit = std::time::Instant::now();
+        }
+    }
+}
+
+impl plumbob_core::ops::JournalSink for EmittingJournal<'_> {
+    fn record(&mut self, event: plumbob_core::ops::JournalEvent) {
+        use plumbob_core::ops::JournalEvent as E;
+        match &event {
+            E::OperationStarted { total_steps, .. } => {
+                self.total = *total_steps;
+                self.done = 0;
+                self.emit(true);
+            }
+            E::StepSucceeded { .. } | E::StepFailed { .. } => {
+                self.done += 1;
+                self.emit(false);
+            }
+            E::OperationFinished { .. } => self.emit(true),
+        }
+        self.events.push(event);
+    }
+}
+
 /// The engine interleaves database writes with journaling, so it records
 /// into an in-memory journal; the events are replayed into SQLite here once
 /// the connection is free. A journal write failure is surfaced but never
@@ -669,9 +739,9 @@ pub fn troubleshoot_verdict(
     } else {
         ts::Verdict::ProblemGone
     };
-    let mut journal = plumbob_core::ops::VecJournal::default();
+    let mut journal = EmittingJournal::new(app);
     let result = ts::submit_verdict(guard.conn_mut(), &tsr, session_id, verdict, &mut journal);
-    replay_journal(&guard, journal.0)?;
+    replay_journal(&guard, journal.events)?;
     let view = result.map_err(err_str)?;
     if view.outcome.as_deref() == Some("culprit_confirmed") {
         let _ = app.emit("library://changed", "troubleshoot");
@@ -680,6 +750,7 @@ pub fn troubleshoot_verdict(
 }
 
 pub fn troubleshoot_abort(
+    app: &AppHandle,
     dbm: &Mutex<Database>,
     data_dir: &Path,
     session_id: i64,
@@ -693,9 +764,9 @@ pub fn troubleshoot_abort(
         holding: &holding,
         quarantine: &roots.quarantine,
     };
-    let mut journal = plumbob_core::ops::VecJournal::default();
+    let mut journal = EmittingJournal::new(app);
     let result = ts::abort_session(guard.conn_mut(), &tsr, session_id, &mut journal);
-    replay_journal(&guard, journal.0)?;
+    replay_journal(&guard, journal.events)?;
     result.map_err(err_str)
 }
 

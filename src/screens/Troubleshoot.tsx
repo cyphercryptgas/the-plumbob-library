@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  onTroubleshootProgress,
+  type TroubleshootProgress,
+} from "../lib/events";
+import {
   troubleshootAbort,
   troubleshootReconcile,
   troubleshootStart,
@@ -95,6 +99,9 @@ export function Troubleshoot(props: { onNavigate: (route: Route) => void }) {
   const [confirmingAbort, setConfirmingAbort] = useState(false);
   const [reconcile, setReconcile] =
     useState<TroubleshootReconcileReport | null>(null);
+  const [progress, setProgress] = useState<TroubleshootProgress | null>(null);
+
+  useEffect(() => onTroubleshootProgress(setProgress), []);
   const reconciledFor = useRef<number | null>(null);
 
   // Keep in step with the app-wide session (badge, other screens).
@@ -132,6 +139,7 @@ export function Troubleshoot(props: { onNavigate: (route: Route) => void }) {
     } finally {
       setBusy(false);
       setConfirmingAbort(false);
+      setProgress(null);
     }
   };
 
@@ -434,6 +442,27 @@ export function Troubleshoot(props: { onNavigate: (route: Route) => void }) {
             </Pill>
           </div>
         ) : null}
+        {busy && progress && progress.total > 0 ? (
+          <div className="mt-4">
+            <div className="flex items-baseline justify-between text-xs text-ink-muted">
+              <span>Arranging files — every move hash-verified…</span>
+              <span>
+                {progress.done.toLocaleString()} /{" "}
+                {progress.total.toLocaleString()}
+              </span>
+            </div>
+            <div className="raised-pill mt-1.5 h-2.5 overflow-hidden rounded-full border border-gold/50 bg-surface">
+              <div
+                className="h-full rounded-full transition-[width] duration-150"
+                style={{
+                  width: `${Math.round((progress.done / progress.total) * 100)}%`,
+                  backgroundImage: "var(--gold-grad-soft)",
+                  boxShadow: "0 0 8px rgba(201,164,92,0.6)",
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
         <div className="mt-5 flex flex-col gap-3 sm:flex-row">
           <VerdictTile
             icon="conflicts"
@@ -484,7 +513,7 @@ export function Troubleshoot(props: { onNavigate: (route: Route) => void }) {
               Session #{session.id} · started{" "}
               {new Date(session.createdAt).toLocaleDateString()}
             </span>
-            <Button variant="quiet" onClick={() => setConfirmingAbort(true)}>
+            <Button variant="quiet" disabled={busy} onClick={() => setConfirmingAbort(true)}>
               Abort & restore everything
             </Button>
           </div>

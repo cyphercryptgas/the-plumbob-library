@@ -33,3 +33,14 @@ export function onScanCompleted(handler: (o: ScanOutcome) => void): Unsub {
 export function onLibraryChanged(handler: (kind: string) => void): Unsub {
   return subscribe("library://changed", handler);
 }
+
+export interface TroubleshootProgress {
+  done: number;
+  total: number;
+}
+
+export function onTroubleshootProgress(
+  handler: (p: TroubleshootProgress) => void
+): Unsub {
+  return subscribe("troubleshoot://progress", handler);
+}

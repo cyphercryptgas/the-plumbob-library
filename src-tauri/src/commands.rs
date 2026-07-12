@@ -384,6 +384,13 @@ pub async fn troubleshoot_start(
     state: State<'_, AppState>,
     note: Option<String>,
 ) -> UiResult<plumbob_core::troubleshoot::SessionView> {
+    if state.scan_in_progress.load(Ordering::SeqCst) {
+        return Err(
+            "A scan is running. Let it finish before troubleshooting — the two \
+             can't safely move files at the same time."
+                .to_string(),
+        );
+    }
     let dbm = state.db.clone();
     let data_dir = state.data_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -400,6 +407,13 @@ pub async fn troubleshoot_verdict(
     session_id: i64,
     problem_present: bool,
 ) -> UiResult<plumbob_core::troubleshoot::SessionView> {
+    if state.scan_in_progress.load(Ordering::SeqCst) {
+        return Err(
+            "A scan is running. Let it finish before troubleshooting — the two \
+             can't safely move files at the same time."
+                .to_string(),
+        );
+    }
     let dbm = state.db.clone();
     let data_dir = state.data_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -411,13 +425,21 @@ pub async fn troubleshoot_verdict(
 
 #[tauri::command]
 pub async fn troubleshoot_abort(
+    app: AppHandle,
     state: State<'_, AppState>,
     session_id: i64,
 ) -> UiResult<plumbob_core::troubleshoot::SessionView> {
+    if state.scan_in_progress.load(Ordering::SeqCst) {
+        return Err(
+            "A scan is running. Let it finish before troubleshooting — the two \
+             can't safely move files at the same time."
+                .to_string(),
+        );
+    }
     let dbm = state.db.clone();
     let data_dir = state.data_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        service::troubleshoot_abort(&dbm, &data_dir, session_id)
+        service::troubleshoot_abort(&app, &dbm, &data_dir, session_id)
     })
     .await
     .map_err(|e| format!("The troubleshoot task failed unexpectedly: {e}"))?

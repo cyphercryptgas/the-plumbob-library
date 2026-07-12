@@ -97,5 +97,30 @@ to the user says so.
   `troubleshoot_reconcile`) behind the game-closed guard, journal replay
   into Activity, reconcile-on-open, the sidebar badge showing suspects
   remaining, and the guided wizard screen.
-* **Plateau 3 (next):** end-to-end validation on the real library, then
-  the release notes.
+* **Plateau 3 (shipped):** live arrangement progress, scan↔hunt
+  cross-guards, the validation protocol below, and the 0.3.0 release
+  notes.
+* **Validated 2026-07-12** on a live 4,213-file library (4,172 packages,
+  41 scripts): thirteen rounds converged on one file, the confirmation
+  round confirmed it, the culprit landed in Quarantine with the
+  troubleshooter reason and was restored through the Quarantine screen —
+  every other file home, counts unchanged.
+
+## Validating on a real library
+
+A ten-minute dry hunt proves the restore path on real data without
+needing a real bug. With the game closed:
+
+1. Note your Dashboard's **Total files** and **Library size**.
+2. Open **Troubleshoot** → *Begin the hunt* → answer **"The problem
+   happens"** at baseline. Watch the progress bar: roughly half the
+   library moves, hash-verified, into `<data>/Troubleshoot/session-N`.
+3. Answer one more round (either verdict), then **Abort & restore
+   everything**.
+4. Check: Dashboard counts unchanged; **Activity** shows the
+   `troubleshoot_round` and `troubleshoot_abort` operations with their
+   per-file steps; the `Troubleshoot` folder in the app's data directory
+   is gone; the game launches with everything present.
+
+If any of those four checks fails, stop and report it — that is exactly
+what the validation run exists to catch.
