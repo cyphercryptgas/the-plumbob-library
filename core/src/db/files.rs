@@ -928,7 +928,7 @@ mod disabled_mod_tests {
             relative_path: PathBuf::from("D.package"),
             expected_sha256: sha.clone(),
         };
-        let out = crate::ops::set_files_enabled(&root, &[req.clone()], false, true, &mut j);
+        let out = crate::ops::set_files_enabled(&root, &[req.clone()], false, "mods_disable", true, &mut j);
         assert_eq!(out.completed.len(), 1);
         assert!(tmp.path().join("D.package.off").exists());
         assert!(!tmp.path().join("D.package").exists());
@@ -937,7 +937,7 @@ mod disabled_mod_tests {
         assert!(!r.enabled);
         assert_eq!(r.current_filename, "D.package.off");
 
-        let back = crate::ops::set_files_enabled(&root, &[req], true, true, &mut j);
+        let back = crate::ops::set_files_enabled(&root, &[req], true, "mods_enable", true, &mut j);
         assert_eq!(back.completed.len(), 1);
         record_toggle_outcome(db.conn_mut(), &back).unwrap();
         let r = row(&db, "D.package");
@@ -963,6 +963,7 @@ mod disabled_mod_tests {
                 expected_sha256: None,
             }],
             false,
+            "mods_disable",
             true,
             &mut j,
         );
@@ -990,6 +991,7 @@ mod disabled_mod_tests {
                 expected_sha256: Some(stale),
             }],
             false,
+            "mods_disable",
             true,
             &mut j,
         );

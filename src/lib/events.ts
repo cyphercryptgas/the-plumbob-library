@@ -44,3 +44,9 @@ export function onTroubleshootProgress(
 ): Unsub {
   return subscribe("troubleshoot://progress", handler);
 }
+
+export function onProfileSwitchProgress(
+  handler: (p: TroubleshootProgress) => void
+): Unsub {
+  return subscribe("profile://progress", handler);
+}

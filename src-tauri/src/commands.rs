@@ -520,3 +520,32 @@ pub async fn set_files_enabled(
     .await
     .map_err(|e| format!("The toggle task failed unexpectedly: {e}"))?
 }
+
+#[tauri::command]
+pub fn preview_switch_profile(
+    state: State<'_, AppState>,
+    profile_id: i64,
+) -> UiResult<plumbob_core::db::profiles::SwitchPlan> {
+    service::preview_switch_profile(&state.db, profile_id)
+}
+
+#[tauri::command]
+pub async fn switch_profile(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    profile_id: i64,
+) -> UiResult<service::SwitchOutcomeDto> {
+    if state.scan_in_progress.load(Ordering::SeqCst) {
+        return Err(
+            "A scan is running. Let it finish before switching profiles."
+                .to_string(),
+        );
+    }
+    let dbm = state.db.clone();
+    let data_dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        service::switch_profile(&app, &dbm, &data_dir, profile_id)
+    })
+    .await
+    .map_err(|e| format!("The profile switch failed unexpectedly: {e}"))?
+}

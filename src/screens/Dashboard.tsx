@@ -94,6 +94,7 @@ const OP_TITLES: Record<string, string> = {
   troubleshoot_abort: "Troubleshoot — hunt aborted, all restored",
   mods_disable: "Mods disabled in place",
   mods_enable: "Mods re-enabled",
+  profile_switch: "Profile switched — library arranged",
 };
 
 function opTitle(op: OperationView): string {

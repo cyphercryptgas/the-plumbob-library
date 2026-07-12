@@ -2,8 +2,10 @@
 //! save; exactly one may be active (enforced by a partial unique index),
 //! and the active profile's name is what the welcome header greets.
 //!
-//! The enable/disable mod sets that will belong to each profile arrive in a
-//! later migration — this module deliberately stays small until then.
+//! Each profile also owns a set of files it keeps disabled. The ACTIVE
+//! profile's set live-tracks reality — [`sync_active_set`] runs after every
+//! operation that changes enabled states — while inactive profiles hold
+//! their sets frozen until switched to via a [`switch_plan`].
 
 use super::{now_rfc3339, DbError};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -17,6 +19,8 @@ pub struct ProfileView {
     pub created_at: String,
     pub updated_at: String,
     pub is_active: bool,
+    /// How many currently-known files this profile keeps disabled.
+    pub disabled_count: i64,
 }
 
 fn row_to_view(r: &rusqlite::Row<'_>) -> Result<ProfileView, rusqlite::Error> {
@@ -26,14 +30,18 @@ fn row_to_view(r: &rusqlite::Row<'_>) -> Result<ProfileView, rusqlite::Error> {
         created_at: r.get(2)?,
         updated_at: r.get(3)?,
         is_active: r.get::<_, i64>(4)? != 0,
+        disabled_count: r.get(5)?,
     })
 }
 
-const COLS: &str = "id, name, created_at, updated_at, is_active";
+const COLS: &str = "p.id, p.name, p.created_at, p.updated_at, p.is_active,
+    (SELECT COUNT(*) FROM profile_disabled d
+       JOIN files f ON f.id = d.file_id AND f.status = 'current'
+     WHERE d.profile_id = p.id)";
 
 pub fn list_profiles(conn: &Connection) -> Result<Vec<ProfileView>, DbError> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT {COLS} FROM profiles ORDER BY name COLLATE NOCASE"
+        "SELECT {COLS} FROM profiles p ORDER BY p.name COLLATE NOCASE"
     ))?;
     let rows = stmt
         .query_map([], row_to_view)?
@@ -44,7 +52,7 @@ pub fn list_profiles(conn: &Connection) -> Result<Vec<ProfileView>, DbError> {
 pub fn active_profile(conn: &Connection) -> Result<Option<ProfileView>, DbError> {
     Ok(conn
         .query_row(
-            &format!("SELECT {COLS} FROM profiles WHERE is_active = 1"),
+            &format!("SELECT {COLS} FROM profiles p WHERE p.is_active = 1"),
             [],
             row_to_view,
         )
@@ -63,8 +71,14 @@ pub fn create_profile(conn: &mut Connection, name: &str) -> Result<ProfileView, 
         params![name, now, i64::from(count == 0)],
     )?;
     let id = tx.last_insert_rowid();
+    // A new profile is a named snapshot of the setup you have right now.
+    tx.execute(
+        "INSERT INTO profile_disabled (profile_id, file_id)
+         SELECT ?1, id FROM files WHERE enabled = 0 AND status = 'current'",
+        [id],
+    )?;
     let view = tx.query_row(
-        &format!("SELECT {COLS} FROM profiles WHERE id = ?1"),
+        &format!("SELECT {COLS} FROM profiles p WHERE p.id = ?1"),
         [id],
         row_to_view,
     )?;
@@ -146,6 +160,97 @@ mod tests {
         assert!(active_profile(db.conn()).unwrap().is_some());
     }
 
+    fn seed_file(db: &mut Database, rel: &str, enabled: bool) -> i64 {
+        db.conn()
+            .execute(
+                "INSERT INTO files (current_filename, absolute_path, relative_path,
+                    file_type, size_bytes, first_seen_at, last_seen_at, enabled)
+                 VALUES (?1, ?2, ?1, 'package', 1, '2026-01-01T00:00:00Z',
+                         '2026-01-01T00:00:00Z', ?3)",
+                rusqlite::params![rel, format!("/m/{rel}"), enabled],
+            )
+            .unwrap();
+        db.conn().last_insert_rowid()
+    }
+
+    fn set_enabled(db: &Database, id: i64, enabled: bool) {
+        db.conn()
+            .execute(
+                "UPDATE files SET enabled = ?2 WHERE id = ?1",
+                rusqlite::params![id, enabled],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn creating_a_profile_snapshots_the_current_setup() {
+        let mut db = Database::open_in_memory().unwrap();
+        seed_file(&mut db, "on.package", true);
+        seed_file(&mut db, "off.package", false);
+        let p = create_profile(db.conn_mut(), "Michael").unwrap();
+        assert_eq!(p.disabled_count, 1);
+    }
+
+    #[test]
+    fn the_active_profile_live_tracks_disk_truth() {
+        let mut db = Database::open_in_memory().unwrap();
+        let a = seed_file(&mut db, "a.package", true);
+        let p = create_profile(db.conn_mut(), "Michael").unwrap();
+        assert_eq!(p.disabled_count, 0);
+        set_enabled(&db, a, false);
+        sync_active_set(db.conn_mut()).unwrap();
+        assert_eq!(
+            list_profiles(db.conn()).unwrap()[0].disabled_count,
+            1,
+            "toggles write through to the active set"
+        );
+        set_enabled(&db, a, true);
+        sync_active_set(db.conn_mut()).unwrap();
+        assert_eq!(list_profiles(db.conn()).unwrap()[0].disabled_count, 0);
+        // With nothing active, sync is a harmless no-op.
+        let id = list_profiles(db.conn()).unwrap()[0].id;
+        delete_profile(db.conn(), id).unwrap();
+        sync_active_set(db.conn_mut()).unwrap();
+    }
+
+    #[test]
+    fn switch_plan_is_set_algebra_with_honest_unavailability() {
+        let mut db = Database::open_in_memory().unwrap();
+        let x = seed_file(&mut db, "x.package", true);
+        let y = seed_file(&mut db, "y.package", true);
+        let z = seed_file(&mut db, "z.package", true);
+        // Profile A: current setup (nothing disabled) — becomes active.
+        create_profile(db.conn_mut(), "A").unwrap();
+        // Profile B captured while y and z were disabled.
+        set_enabled(&db, y, false);
+        set_enabled(&db, z, false);
+        let b = create_profile(db.conn_mut(), "B").unwrap();
+        assert_eq!(b.disabled_count, 2);
+        // Back to A's world plus x disabled by hand.
+        set_enabled(&db, y, true);
+        set_enabled(&db, z, true);
+        set_enabled(&db, x, false);
+        sync_active_set(db.conn_mut()).unwrap();
+
+        let plan = switch_plan(db.conn(), b.id).unwrap();
+        let dis: Vec<_> = plan.to_disable.iter().map(|t| t.relative_path.as_str()).collect();
+        let ena: Vec<_> = plan.to_enable.iter().map(|t| t.relative_path.as_str()).collect();
+        assert_eq!(dis, vec!["y.package", "z.package"]);
+        assert_eq!(ena, vec!["x.package"]);
+        assert!(plan.unavailable.is_empty());
+
+        // z goes missing since B was captured: reported, never dropped.
+        db.conn()
+            .execute("UPDATE files SET missing = 1 WHERE id = ?1", [z])
+            .unwrap();
+        let plan = switch_plan(db.conn(), b.id).unwrap();
+        assert_eq!(
+            plan.to_disable.iter().map(|t| t.relative_path.as_str()).collect::<Vec<_>>(),
+            vec!["y.package"]
+        );
+        assert_eq!(plan.unavailable, vec!["z.package".to_string()]);
+    }
+
     #[test]
     fn rename_and_delete_behave() {
         let mut db = Database::open_in_memory().unwrap();
@@ -159,4 +264,104 @@ mod tests {
         assert!(list_profiles(db.conn()).unwrap().is_empty());
         assert!(active_profile(db.conn()).unwrap().is_none());
     }
+}
+
+// ---------------------------------------------------------------------------
+// Mod sets
+// ---------------------------------------------------------------------------
+
+/// Rewrite the ACTIVE profile's disabled set from disk truth. Cheap (the
+/// set is sparse) and impossible to drift; call after any operation that
+/// changes enabled states. A no-op when no profile is active.
+pub fn sync_active_set(conn: &mut Connection) -> Result<(), DbError> {
+    let tx = conn.transaction()?;
+    let active: Option<i64> = tx
+        .query_row(
+            "SELECT id FROM profiles WHERE is_active = 1",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(id) = active {
+        tx.execute("DELETE FROM profile_disabled WHERE profile_id = ?1", [id])?;
+        tx.execute(
+            "INSERT INTO profile_disabled (profile_id, file_id)
+             SELECT ?1, id FROM files WHERE enabled = 0 AND status = 'current'",
+            [id],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// One side of a planned switch: the file plus what the verified rename
+/// needs to know about it.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlannedToggle {
+    pub file_id: i64,
+    pub relative_path: String,
+    pub sha256: Option<String>,
+}
+
+/// The read-only diff between the library's current enabled state and a
+/// target profile's stored set. Files the target wants disabled that are
+/// now missing or quarantined land in `unavailable` — reported, never
+/// silently dropped from intent.
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SwitchPlan {
+    pub to_disable: Vec<PlannedToggle>,
+    pub to_enable: Vec<PlannedToggle>,
+    pub unavailable: Vec<String>,
+}
+
+pub fn switch_plan(conn: &Connection, target_id: i64) -> Result<SwitchPlan, DbError> {
+    let mut plan = SwitchPlan::default();
+    let mut stmt = conn.prepare(
+        "SELECT f.id, f.relative_path, f.sha256, f.missing, f.status
+         FROM profile_disabled d JOIN files f ON f.id = d.file_id
+         WHERE d.profile_id = ?1 AND f.enabled = 1
+         ORDER BY f.relative_path COLLATE NOCASE",
+    )?;
+    let rows = stmt.query_map([target_id], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Option<String>>(2)?,
+            r.get::<_, i64>(3)? != 0,
+            r.get::<_, String>(4)?,
+        ))
+    })?;
+    for row in rows {
+        let (file_id, relative_path, sha256, missing, status) = row?;
+        if missing || status != "current" {
+            plan.unavailable.push(relative_path);
+        } else {
+            plan.to_disable.push(PlannedToggle {
+                file_id,
+                relative_path,
+                sha256,
+            });
+        }
+    }
+    let mut stmt = conn.prepare(
+        "SELECT f.id, f.relative_path, f.sha256
+         FROM files f
+         WHERE f.enabled = 0 AND f.status = 'current' AND f.missing = 0
+           AND f.id NOT IN
+               (SELECT file_id FROM profile_disabled WHERE profile_id = ?1)
+         ORDER BY f.relative_path COLLATE NOCASE",
+    )?;
+    let rows = stmt.query_map([target_id], |r| {
+        Ok(PlannedToggle {
+            file_id: r.get(0)?,
+            relative_path: r.get(1)?,
+            sha256: r.get(2)?,
+        })
+    })?;
+    for row in rows {
+        plan.to_enable.push(row?);
+    }
+    Ok(plan)
 }

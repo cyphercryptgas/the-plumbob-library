@@ -26,6 +26,8 @@ import type {
   TroubleshootSession,
   ProfileView,
   ToggleOutcomeDto,
+  SwitchPlanDto,
+  SwitchOutcomeDto,
 } from "./types";
 
 // App identity & settings -----------------------------------------------
@@ -161,3 +163,9 @@ export const deleteProfile = (profileId: number) =>
 
 export const setFilesEnabled = (fileIds: number[], enabled: boolean) =>
   call<ToggleOutcomeDto>("set_files_enabled", { fileIds, enabled });
+
+export const previewSwitchProfile = (profileId: number) =>
+  call<SwitchPlanDto>("preview_switch_profile", { profileId });
+
+export const switchProfile = (profileId: number) =>
+  call<SwitchOutcomeDto>("switch_profile", { profileId });

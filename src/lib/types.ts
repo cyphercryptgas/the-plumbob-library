@@ -268,10 +268,31 @@ export interface ProfileView {
   createdAt: string;
   updatedAt: string;
   isActive: boolean;
+  disabledCount: number;
 }
 
 export interface ToggleOutcomeDto {
   completed: number;
   skipped: number;
   failed: { path: string; message: string }[];
+}
+
+export interface PlannedToggleDto {
+  fileId: number;
+  relativePath: string;
+  sha256: string | null;
+}
+
+export interface SwitchPlanDto {
+  toDisable: PlannedToggleDto[];
+  toEnable: PlannedToggleDto[];
+  unavailable: string[];
+}
+
+export interface SwitchOutcomeDto {
+  disabledApplied: number;
+  enabledApplied: number;
+  unavailable: string[];
+  failed: { path: string; message: string }[];
+  activated: boolean;
 }

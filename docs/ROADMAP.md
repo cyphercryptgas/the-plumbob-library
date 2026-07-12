@@ -32,9 +32,9 @@ never renders fake versions. Status source of truth: `FEATURE_STATUS.md`.
   shell commands and the guided wizard UI are next): guided binary-search
   sessions over the library using the
   existing quarantine engine (snapshot-first, fully reversible by design).
-* Profiles (**identity + the toggle engine shipped** — in-place verified
-  enable/disable with full scanner awareness; per-profile mod sets and
-  one-click switching are the final plateau).
+* Profiles (**fully shipped** — identity and the greeting, the verified
+  in-place toggle engine with scanner awareness, and per-profile mod
+  sets with previewed one-click switching; see `docs/PROFILES.md`).
 
 ## Phase 5 — advanced
 

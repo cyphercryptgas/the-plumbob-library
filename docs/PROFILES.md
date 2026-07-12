@@ -39,9 +39,29 @@ The rules, exactly:
   ignores them, so they can't be culprits), and toggling is mutually
   exclusive with scans and active hunts.
 
-## Plateau 3 — Mod sets & switching (next)
+## Plateau 3 — Mod sets & switching (shipped, v0.6.0)
 
-Each profile remembers its own disabled set. Switching profiles computes
-the difference and applies it as one journaled batch of verified
-renames — with the same live progress bar the troubleshooter uses — so
-"Mackenzie's setup" and "Michael's full CC" become one click apart.
+Each profile owns the set of files it keeps disabled
+(`profile_disabled`, migration 0006). The rules, exactly:
+
+* **The active profile live-tracks reality.** After every operation that
+  changes enabled states — toggles, scans (which sync manual renames),
+  quarantines, restores — the active profile's set is rewritten
+  wholesale from disk truth. Cheap, and impossible to drift.
+* **Creating a profile snapshots the current setup**, including the
+  first auto-activated one. Naming an arrangement is one click.
+* **Switching is a previewed diff.** `switch_plan` is pure set algebra
+  computed in core (and tested there): files the target keeps off that
+  are currently on → disable; files currently off that the target
+  doesn't keep off → enable. Files in the target's set that are missing
+  or quarantined are `unavailable` — reported to the user, never
+  silently dropped from intent.
+* **Activation only on a clean apply.** Both directions run as
+  best-effort journaled batches (`profile_switch` operations) with live
+  progress on `profile://progress`. If any rename fails, the previous
+  profile stays active, the failures are named, and retrying applies
+  only the shrunken remainder. Every completed rename is individually
+  recorded either way.
+* Deleting the active profile leaves no profile active: the greeting
+  reverts and toggles simply stop write-tracking until another profile
+  is activated.

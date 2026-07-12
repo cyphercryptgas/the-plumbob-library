@@ -4,11 +4,16 @@ import {
   createProfile,
   deleteProfile,
   listProfiles,
+  previewSwitchProfile,
   renameProfile,
-  setActiveProfile,
+  switchProfile,
 } from "../lib/commands";
+import {
+  onProfileSwitchProgress,
+  type TroubleshootProgress,
+} from "../lib/events";
 import { useApp } from "../state/AppContext";
-import type { ProfileView } from "../lib/types";
+import type { ProfileView, SwitchPlanDto } from "../lib/types";
 import { Button, Card, Icon, Pill, SectionTitle } from "../components/ui";
 
 function shortDate(iso: string): string {
@@ -29,6 +34,54 @@ export function Profiles() {
     null
   );
   const [confirmingDelete, setConfirmingDelete] = useState<number | null>(null);
+  const [switching, setSwitching] = useState<{
+    profile: ProfileView;
+    plan: SwitchPlanDto;
+  } | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [progress, setProgress] = useState<TroubleshootProgress | null>(null);
+
+  useEffect(() => onProfileSwitchProgress(setProgress), []);
+
+  const openSwitch = async (profile: ProfileView) => {
+    setBusy(true);
+    try {
+      setSwitching({ profile, plan: await previewSwitchProfile(profile.id) });
+    } catch (e) {
+      reportError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applySwitch = async () => {
+    if (!switching) return;
+    setApplying(true);
+    try {
+      const out = await switchProfile(switching.profile.id);
+      if (!out.activated) {
+        reportError(
+          `The switch left ${out.failed.length} file(s) unmoved — nothing was lost, and retrying applies only what remains: ` +
+            out.failed
+              .slice(0, 3)
+              .map((f) => `${f.path} — ${f.message}`)
+              .join("; ")
+        );
+        setSwitching({
+          profile: switching.profile,
+          plan: await previewSwitchProfile(switching.profile.id),
+        });
+      } else {
+        setSwitching(null);
+      }
+      await refresh();
+    } catch (e) {
+      reportError(e);
+    } finally {
+      setApplying(false);
+      setProgress(null);
+    }
+  };
 
   const refresh = async () => {
     try {
@@ -149,6 +202,10 @@ export function Profiles() {
                       </span>
                       <span className="block text-xs text-ink-muted">
                         since {shortDate(p.createdAt)}
+                        {p.disabledCount > 0
+                          ? ` · keeps ${p.disabledCount} mod${p.disabledCount === 1 ? "" : "s"} off`
+                          : ""}
+                        {p.isActive ? " · tracking your toggles live" : ""}
                       </span>
                     </>
                   )}
@@ -158,8 +215,8 @@ export function Profiles() {
                 ) : (
                   <Button
                     variant="quiet"
-                    disabled={busy}
-                    onClick={() => void run(() => setActiveProfile(p.id))}
+                    disabled={busy || applying}
+                    onClick={() => void openSwitch(p)}
                   >
                     Make active
                   </Button>
@@ -208,6 +265,61 @@ export function Profiles() {
                 )}
               </div>
             ))}
+          </div>
+        </Card>
+      ) : null}
+
+      {switching ? (
+        <Card finials>
+          <SectionTitle>Switch to {switching.profile.name}?</SectionTitle>
+          <p className="text-sm leading-relaxed text-ink-secondary">
+            {switching.plan.toDisable.length + switching.plan.toEnable.length ===
+            0
+              ? "Your library already matches this profile — nothing will move; it simply becomes the one tracking your toggles."
+              : `${switching.plan.toDisable.length.toLocaleString()} mod${switching.plan.toDisable.length === 1 ? "" : "s"} will be disabled and ${switching.plan.toEnable.length.toLocaleString()} re-enabled — verified in-place renames, journaled, and reversible by switching back.`}
+          </p>
+          {switching.plan.unavailable.length > 0 ? (
+            <p className="mt-2 text-xs text-warning">
+              {switching.plan.unavailable.length} file
+              {switching.plan.unavailable.length === 1 ? "" : "s"} this profile
+              keeps off {switching.plan.unavailable.length === 1 ? "is" : "are"}{" "}
+              missing or quarantined and can't be arranged:{" "}
+              {switching.plan.unavailable.slice(0, 3).join(", ")}
+              {switching.plan.unavailable.length > 3 ? "…" : ""}
+            </p>
+          ) : null}
+          {applying && progress && progress.total > 0 ? (
+            <div className="mt-4">
+              <div className="flex items-baseline justify-between text-xs text-ink-muted">
+                <span>Arranging your library…</span>
+                <span>
+                  {progress.done.toLocaleString()} /{" "}
+                  {progress.total.toLocaleString()}
+                </span>
+              </div>
+              <div className="raised-pill mt-1.5 h-2.5 overflow-hidden rounded-full border border-gold/50 bg-surface">
+                <div
+                  className="h-full rounded-full transition-[width] duration-150"
+                  style={{
+                    width: `${Math.round((progress.done / Math.max(progress.total, 1)) * 100)}%`,
+                    backgroundImage: "var(--gold-grad-soft)",
+                    boxShadow: "0 0 8px rgba(201,164,92,0.6)",
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
+          <div className="mt-4 flex items-center gap-3">
+            <Button disabled={applying} onClick={() => void applySwitch()}>
+              {applying ? "Arranging…" : "Switch now"}
+            </Button>
+            <Button
+              variant="quiet"
+              disabled={applying}
+              onClick={() => setSwitching(null)}
+            >
+              Cancel
+            </Button>
           </div>
         </Card>
       ) : null}

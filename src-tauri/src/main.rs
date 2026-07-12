@@ -55,6 +55,8 @@ fn main() {
             commands::set_active_profile,
             commands::delete_profile,
             commands::set_files_enabled,
+            commands::preview_switch_profile,
+            commands::switch_profile,
             commands::list_quarantine,
             commands::list_backups,
             commands::list_backup_entries,

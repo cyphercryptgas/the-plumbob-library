@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.0 — Profiles, Part Three: The Switch
+
+* **Profiles are now full mod-sets.** Each profile remembers the files it
+  keeps disabled. The active profile live-tracks reality — every toggle,
+  every scan-synced rename, every quarantine and restore writes through
+  to its set — while inactive profiles hold their sets frozen. Creating
+  a profile snapshots your current setup, so "name this arrangement"
+  works the way it feels like it should.
+* **"Make active" now means switch.** A previewed diff shows exactly what
+  will move ("214 to disable, 89 to re-enable") before anything does;
+  applying it is one journaled batch of verified in-place renames with
+  the live progress bar. Files a profile keeps off that have since gone
+  missing or been quarantined are reported honestly, never silently
+  dropped. The target becomes active only when every rename lands — a
+  partial apply names its failures, leaves the previous profile active,
+  and retrying applies only what remains.
+* Switching is guarded against running scans and active troubleshooting
+  hunts, and shows up in Recent Activity as "Profile switched — library
+  arranged."
+
+
 ## 0.5.0 — Profiles, Part Two: The Toggle
 
 * **Enable / disable in place.** A disabled mod becomes `Name.package.off`

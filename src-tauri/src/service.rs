@@ -183,6 +183,7 @@ pub fn run_scan_pipeline(
         db::files::reconcile_scan(guard.conn_mut(), &report, scan_type, &opts.excluded_relative)
             .map_err(err_str)?
     };
+        db::profiles::sync_active_set(guard.conn_mut()).map_err(err_str)?;
 
     // Hash pass. Content identity underpins duplicate detection and every
     // verified operation, so new/changed files are always hashed.
@@ -434,6 +435,7 @@ pub fn execute_quarantine(
         o
     };
     db::ops::record_quarantine_outcome(guard.conn_mut(), &outcome).map_err(err_str)?;
+    db::profiles::sync_active_set(guard.conn_mut()).map_err(err_str)?;
 
     if let Some(group_id) = resolve_group_id {
         if outcome.failed.is_empty() {
@@ -503,6 +505,7 @@ pub fn restore_quarantined_file(
         result.map_err(err_str)?
     };
     db::ops::mark_quarantine_restored(guard.conn_mut(), entry_id).map_err(err_str)?;
+    db::profiles::sync_active_set(guard.conn_mut()).map_err(err_str)?;
     let _ = app.emit("library://changed", "restore");
     Ok(restored.to_string_lossy().into_owned())
 }
@@ -625,6 +628,7 @@ struct TroubleshootProgress {
 /// verification, and silence would look like a freeze.
 struct EmittingJournal<'a> {
     app: &'a AppHandle,
+    event: &'static str,
     events: Vec<plumbob_core::ops::JournalEvent>,
     total: usize,
     done: usize,
@@ -632,9 +636,10 @@ struct EmittingJournal<'a> {
 }
 
 impl<'a> EmittingJournal<'a> {
-    fn new(app: &'a AppHandle) -> Self {
+    fn new(app: &'a AppHandle, event: &'static str) -> Self {
         Self {
             app,
+            event,
             events: Vec::new(),
             total: 0,
             done: 0,
@@ -644,7 +649,7 @@ impl<'a> EmittingJournal<'a> {
     fn emit(&mut self, force: bool) {
         if force || self.last_emit.elapsed().as_millis() >= 150 {
             let _ = self.app.emit(
-                "troubleshoot://progress",
+                self.event,
                 TroubleshootProgress {
                     done: self.done,
                     total: self.total,
@@ -739,7 +744,7 @@ pub fn troubleshoot_verdict(
     } else {
         ts::Verdict::ProblemGone
     };
-    let mut journal = EmittingJournal::new(app);
+    let mut journal = EmittingJournal::new(app, "troubleshoot://progress");
     let result = ts::submit_verdict(guard.conn_mut(), &tsr, session_id, verdict, &mut journal);
     replay_journal(&guard, journal.events)?;
     let view = result.map_err(err_str)?;
@@ -764,7 +769,7 @@ pub fn troubleshoot_abort(
         holding: &holding,
         quarantine: &roots.quarantine,
     };
-    let mut journal = EmittingJournal::new(app);
+    let mut journal = EmittingJournal::new(app, "troubleshoot://progress");
     let result = ts::abort_session(guard.conn_mut(), &tsr, session_id, &mut journal);
     replay_journal(&guard, journal.events)?;
     result.map_err(err_str)
@@ -904,9 +909,11 @@ pub fn set_files_enabled(
         })
         .collect();
     let mut journal = plumbob_core::ops::VecJournal::default();
-    let outcome = ops::set_files_enabled(&roots.mods, &requests, enable, false, &mut journal);
+    let kind = if enable { "mods_enable" } else { "mods_disable" };
+    let outcome = ops::set_files_enabled(&roots.mods, &requests, enable, kind, false, &mut journal);
     replay_journal(&guard, journal.0)?;
     db::ops::record_toggle_outcome(guard.conn_mut(), &outcome).map_err(err_str)?;
+    db::profiles::sync_active_set(guard.conn_mut()).map_err(err_str)?;
     if !outcome.completed.is_empty() {
         let _ = app.emit("library://changed", "toggle");
     }
@@ -921,5 +928,108 @@ pub fn set_files_enabled(
                 message: f.message.clone(),
             })
             .collect(),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Profile switching
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SwitchOutcomeDto {
+    pub disabled_applied: usize,
+    pub enabled_applied: usize,
+    pub unavailable: Vec<String>,
+    pub failed: Vec<FailedStep>,
+    pub activated: bool,
+}
+
+/// The read-only diff shown before a switch is confirmed.
+pub fn preview_switch_profile(
+    dbm: &Mutex<Database>,
+    target_id: i64,
+) -> UiResult<db::profiles::SwitchPlan> {
+    let guard = lock_db(dbm)?;
+    db::profiles::switch_plan(guard.conn(), target_id).map_err(err_str)
+}
+
+/// Guard → plan → verified renames (both directions, best-effort, live
+/// progress) → row sync. The target becomes the active profile only when
+/// every rename landed; a partial apply reports its failures and leaves
+/// the previous profile active so the switch can simply be retried.
+pub fn switch_profile(
+    app: &AppHandle,
+    dbm: &Mutex<Database>,
+    data_dir: &Path,
+    target_id: i64,
+) -> UiResult<SwitchOutcomeDto> {
+    ensure_game_closed()?;
+    let mut guard = lock_db(dbm)?;
+    if let Some(id) =
+        db::troubleshoot::active_session_id(guard.conn()).map_err(err_str)?
+    {
+        return Err(format!(
+            "Troubleshooting session #{id} is active. Finish or abort the \
+             hunt before switching profiles — both move files and must not \
+             overlap."
+        ));
+    }
+    let roots = resolve_roots(&guard, data_dir)?;
+    let plan = db::profiles::switch_plan(guard.conn(), target_id).map_err(err_str)?;
+
+    fn to_request(t: &db::profiles::PlannedToggle) -> ops::ToggleRequest {
+        ops::ToggleRequest {
+            relative_path: PathBuf::from(&t.relative_path),
+            expected_sha256: t.sha256.clone(),
+        }
+    }
+    let empty = |op: String| plumbob_core::ops::BatchOutcome::<plumbob_core::ops::ToggleEntry> {
+        operation_id: op,
+        completed: Vec::new(),
+        failed: Vec::new(),
+        halted_early: false,
+    };
+
+    let mut journal = EmittingJournal::new(app, "profile://progress");
+    let disable_reqs: Vec<ops::ToggleRequest> = plan.to_disable.iter().map(to_request).collect();
+    let enable_reqs: Vec<ops::ToggleRequest> = plan.to_enable.iter().map(to_request).collect();
+    let dis_out = if disable_reqs.is_empty() {
+        empty(String::new())
+    } else {
+        ops::set_files_enabled(&roots.mods, &disable_reqs, false, "profile_switch", false, &mut journal)
+    };
+    let ena_out = if enable_reqs.is_empty() {
+        empty(String::new())
+    } else {
+        ops::set_files_enabled(&roots.mods, &enable_reqs, true, "profile_switch", false, &mut journal)
+    };
+    replay_journal(&guard, journal.events)?;
+    db::ops::record_toggle_outcome(guard.conn_mut(), &dis_out).map_err(err_str)?;
+    db::ops::record_toggle_outcome(guard.conn_mut(), &ena_out).map_err(err_str)?;
+
+    let failed: Vec<FailedStep> = dis_out
+        .failed
+        .iter()
+        .chain(ena_out.failed.iter())
+        .map(|f| FailedStep {
+            path: f.source.to_string_lossy().into_owned(),
+            message: f.message.clone(),
+        })
+        .collect();
+    let activated = failed.is_empty();
+    if activated {
+        db::profiles::set_active_profile(guard.conn_mut(), target_id).map_err(err_str)?;
+        db::profiles::sync_active_set(guard.conn_mut()).map_err(err_str)?;
+    }
+    if !dis_out.completed.is_empty() || !ena_out.completed.is_empty() {
+        let _ = app.emit("library://changed", "profile");
+    }
+    Ok(SwitchOutcomeDto {
+        disabled_applied: dis_out.completed.len(),
+        enabled_applied: ena_out.completed.len(),
+        unavailable: plan.unavailable,
+        failed,
+        activated,
     })
 }

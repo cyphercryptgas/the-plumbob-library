@@ -223,11 +223,11 @@ pub fn set_files_enabled(
     mods: &SafeRoot,
     requests: &[ToggleRequest],
     enable: bool,
+    kind: &str,
     stop_on_error: bool,
     journal: &mut dyn JournalSink,
 ) -> BatchOutcome<ToggleEntry> {
     let operation_id = new_operation_id();
-    let kind = if enable { "mods_enable" } else { "mods_disable" };
     journal.record(JournalEvent::OperationStarted {
         operation_id: operation_id.clone(),
         kind: kind.into(),
