@@ -12,6 +12,7 @@ export type Route =
   | "backups"
   | "activity"
   | "profiles"
+  | "patchcenter"
   | "settings";
 
 const NAV: { route: Route; label: string; icon: IconName }[] = [
@@ -24,13 +25,12 @@ const NAV: { route: Route; label: string; icon: IconName }[] = [
   { route: "backups", label: "Backups", icon: "backups" },
   { route: "activity", label: "Activity", icon: "activity" },
   { route: "profiles", label: "Profiles", icon: "profiles" },
+  { route: "patchcenter", label: "Patch Center", icon: "calendar" },
   { route: "settings", label: "Settings", icon: "settings" },
 ];
 
 /** Honest labeling: planned features are visible but clearly not built. */
-const PLANNED: { label: string; icon: IconName }[] = [
-  { label: "Patch Center", icon: "calendar" },
-];
+const PLANNED: { label: string; icon: IconName }[] = [];
 
 // Deterministic decoration, baked at build time from the approved preview.
 const STARS = [
@@ -262,7 +262,11 @@ export function Sidebar(props: {
           );
         })}
 
-        <div className="pb-1 pt-4 text-[10px] font-bold uppercase tracking-[0.18em] text-sidebar-ink-muted">
+        {PLANNED.length > 0 ? (
+
+          <>
+
+            <div className="pb-1 pt-4 text-[10px] font-bold uppercase tracking-[0.18em] text-sidebar-ink-muted">
           Planned
         </div>
         {PLANNED.map((item) => (
@@ -278,6 +282,10 @@ export function Sidebar(props: {
             <Pill tone="neutral">soon</Pill>
           </div>
         ))}
+
+          </>
+
+        ) : null}
       </nav>
 
       <div className="relative border-t border-gold/25 px-4 py-3 text-xs text-sidebar-ink-muted">

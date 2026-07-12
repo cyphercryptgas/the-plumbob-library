@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.0 — The Patch Center, Part One: Update Radar
+
+* **Your library, checked against CurseForge itself.** Every package and
+  script is identified by CurseForge's own fingerprint (MurmurHash2,
+  seed 1, whitespace stripped — their scheme, byte for byte, proven
+  against independent test vectors) and compared to the mod's latest
+  release. Results land in the new Patch Center screen: updates with
+  one-click mod pages, up-to-date matches, and an honest count of files
+  CurseForge simply doesn't know (Patreon and Tumblr CC live there —
+  that's normal).
+* **Private by construction.** Only anonymous fingerprints and mod ids go
+  over the wire; the API key rides in a request header and lives nowhere
+  but the local database. Results are cached locally, so the screen
+  renders instantly between checks.
+* **First run fingerprints the whole library once** (two streaming passes
+  per file, flat memory even for gigabyte CC merges) with live phase
+  progress; afterwards only new files pay that cost.
+* The sidebar's PLANNED section is empty for the first time — every
+  screen the preview promised now exists.
+
+
 ## 0.6.0 — Profiles, Part Three: The Switch
 
 * **Profiles are now full mod-sets.** Each profile remembers the files it

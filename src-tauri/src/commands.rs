@@ -549,3 +549,41 @@ pub async fn switch_profile(
     .await
     .map_err(|e| format!("The profile switch failed unexpectedly: {e}"))?
 }
+
+// ---------------------------------------------------------------------------
+// Patch Center
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn check_curse_updates(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> UiResult<service::PatchCheckSummary> {
+    if state.scan_in_progress.load(Ordering::SeqCst) {
+        return Err(
+            "A scan is running. Let it finish before checking for updates."
+                .to_string(),
+        );
+    }
+    let dbm = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        service::check_curse_updates(&app, &dbm)
+    })
+    .await
+    .map_err(|e| format!("The update check failed unexpectedly: {e}"))?
+}
+
+#[tauri::command]
+pub fn curse_status(
+    state: State<'_, AppState>,
+) -> UiResult<Vec<plumbob_core::db::curse::CurseStatusRow>> {
+    service::curse_status(&state.db)
+}
+
+#[tauri::command]
+pub fn open_external(url: String) -> UiResult<()> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("Only web links can be opened.".to_string());
+    }
+    open::that(&url).map_err(|e| format!("Couldn't open the browser: {e}"))
+}

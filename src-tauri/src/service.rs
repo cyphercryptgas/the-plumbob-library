@@ -1039,3 +1039,187 @@ pub fn switch_profile(
         activated,
     })
 }
+
+// ---------------------------------------------------------------------------
+// Patch Center — CurseForge update radar
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct PatchProgress {
+    phase: String,
+    done: usize,
+    total: usize,
+}
+
+fn emit_patch(app: &AppHandle, phase: &str, done: usize, total: usize) {
+    let _ = app.emit(
+        "patch://progress",
+        PatchProgress {
+            phase: phase.to_string(),
+            done,
+            total,
+        },
+    );
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PatchCheckSummary {
+    pub eligible: usize,
+    pub newly_fingerprinted: usize,
+    pub matched: usize,
+    pub updates: usize,
+    pub unknown: usize,
+    pub checked_at: String,
+}
+
+/// Fingerprint what's missing, ask CurseForge who it knows, compare each
+/// match to the mod's latest file, cache the snapshot. Read-only toward
+/// the library; the database lock is never held across disk or network.
+pub fn check_curse_updates(
+    app: &AppHandle,
+    dbm: &Mutex<Database>,
+) -> UiResult<PatchCheckSummary> {
+    let (key, pending) = {
+        let guard = lock_db(dbm)?;
+        let settings = db::settings::load(guard.conn()).map_err(err_str)?;
+        let key = settings
+            .curseforge_api_key
+            .filter(|k| !k.trim().is_empty())
+            .ok_or_else(|| {
+                "No CurseForge API key yet — paste one in Settings → \
+                 Connections and try again."
+                    .to_string()
+            })?;
+        let pending =
+            db::curse::files_needing_fingerprint(guard.conn()).map_err(err_str)?;
+        (key, pending)
+    };
+
+    // Phase 1: fingerprint the stragglers. Disk work happens unlocked;
+    // rows are written back in small batches.
+    let total_pending = pending.len();
+    let mut newly_fingerprinted = 0usize;
+    let mut batch: Vec<(i64, u32)> = Vec::with_capacity(25);
+    emit_patch(app, "Fingerprinting", 0, total_pending);
+    for (i, (file_id, absolute)) in pending.iter().enumerate() {
+        match plumbob_core::curse::curse_fingerprint_file(Path::new(absolute)) {
+            Ok(fp) => {
+                batch.push((*file_id, fp));
+                newly_fingerprinted += 1;
+            }
+            Err(_) => { /* unreadable right now — it stays pending */ }
+        }
+        if batch.len() >= 25 || i + 1 == total_pending {
+            let guard = lock_db(dbm)?;
+            for (id, fp) in batch.drain(..) {
+                db::curse::set_fingerprint(guard.conn(), id, fp).map_err(err_str)?;
+            }
+            emit_patch(app, "Fingerprinting", i + 1, total_pending);
+        }
+    }
+
+    let pairs = {
+        let guard = lock_db(dbm)?;
+        db::curse::fingerprint_pairs(guard.conn()).map_err(err_str)?
+    };
+    let eligible = pairs.len();
+
+    // Phase 2: who does CurseForge recognize?
+    let client = crate::curse_api::CurseClient::new(&key)?;
+    let game_id = client.find_sims4_game_id()?;
+    let fingerprints: Vec<u32> = pairs.iter().map(|(fp, _)| *fp).collect();
+    let mut matched_files: Vec<crate::curse_api::CurseFile> = Vec::new();
+    let batches: Vec<&[u32]> = fingerprints.chunks(500).collect();
+    emit_patch(app, "Matching against CurseForge", 0, batches.len().max(1));
+    for (i, chunk) in batches.iter().enumerate() {
+        matched_files.extend(client.match_fingerprints(game_id, chunk)?);
+        emit_patch(app, "Matching against CurseForge", i + 1, batches.len());
+    }
+
+    // Phase 3: resolve the matched mods (names, links, latest files).
+    let mut mod_ids: Vec<i64> = matched_files.iter().map(|f| f.mod_id).collect();
+    mod_ids.sort_unstable();
+    mod_ids.dedup();
+    let mut mods: std::collections::HashMap<i64, crate::curse_api::CurseMod> =
+        std::collections::HashMap::with_capacity(mod_ids.len());
+    let mod_batches: Vec<&[i64]> = mod_ids.chunks(50).collect();
+    emit_patch(app, "Resolving mods", 0, mod_batches.len().max(1));
+    for (i, chunk) in mod_batches.iter().enumerate() {
+        for m in client.get_mods(chunk)? {
+            mods.insert(m.id, m);
+        }
+        emit_patch(app, "Resolving mods", i + 1, mod_batches.len());
+    }
+
+    // Phase 4: compare and cache.
+    let by_fingerprint: std::collections::HashMap<i64, &crate::curse_api::CurseFile> =
+        matched_files
+            .iter()
+            .map(|f| (f.file_fingerprint, f))
+            .collect();
+    let mut records: Vec<db::curse::MatchRecord> = Vec::new();
+    for (fp, file_id) in &pairs {
+        let Some(hit) = by_fingerprint.get(&i64::from(*fp)) else {
+            continue;
+        };
+        let Some(mod_info) = mods.get(&hit.mod_id) else {
+            continue;
+        };
+        let latest = mod_info
+            .latest_files
+            .iter()
+            .max_by(|a, b| {
+                if plumbob_core::curse::date_newer(&a.file_date, &b.file_date) {
+                    std::cmp::Ordering::Less
+                } else if plumbob_core::curse::date_newer(&b.file_date, &a.file_date) {
+                    std::cmp::Ordering::Greater
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .cloned()
+            .unwrap_or_else(|| hit.to_owned().clone());
+        records.push(db::curse::MatchRecord {
+            file_id: *file_id,
+            curse_mod_id: hit.mod_id,
+            curse_file_id: hit.id,
+            mod_name: mod_info.name.clone(),
+            website_url: mod_info.links.website_url.clone(),
+            matched_file_name: hit.file_name.clone(),
+            matched_file_date: hit.file_date.clone(),
+            latest_file_id: latest.id,
+            latest_file_name: latest.file_name.clone(),
+            latest_file_date: latest.file_date.clone(),
+            update_available: plumbob_core::curse::update_available(
+                hit.id,
+                &hit.file_date,
+                latest.id,
+                &latest.file_date,
+            ),
+        });
+    }
+    let matched = records.len();
+    let updates = records.iter().filter(|r| r.update_available).count();
+    let checked_at = {
+        let mut guard = lock_db(dbm)?;
+        db::curse::replace_matches(guard.conn_mut(), &records).map_err(err_str)?
+    };
+    emit_patch(app, "Done", 1, 1);
+    Ok(PatchCheckSummary {
+        eligible,
+        newly_fingerprinted,
+        matched,
+        updates,
+        unknown: eligible.saturating_sub(matched),
+        checked_at,
+    })
+}
+
+pub fn curse_status(
+    dbm: &Mutex<Database>,
+) -> UiResult<Vec<db::curse::CurseStatusRow>> {
+    let guard = lock_db(dbm)?;
+    db::curse::status(guard.conn()).map_err(err_str)
+}

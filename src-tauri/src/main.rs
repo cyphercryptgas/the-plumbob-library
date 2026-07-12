@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod curse_api;
 mod game;
 mod service;
 mod state;
@@ -57,6 +58,9 @@ fn main() {
             commands::set_files_enabled,
             commands::preview_switch_profile,
             commands::switch_profile,
+            commands::check_curse_updates,
+            commands::curse_status,
+            commands::open_external,
             commands::list_quarantine,
             commands::list_backups,
             commands::list_backup_entries,

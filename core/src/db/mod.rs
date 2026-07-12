@@ -12,6 +12,7 @@
 //! * every multi-row mutation runs inside a transaction
 
 pub mod catalog;
+pub mod curse;
 pub mod dupes;
 pub mod files;
 pub mod ops;
@@ -67,6 +68,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
     (
         "0006_profile_sets",
         include_str!("../../migrations/0006_profile_sets.sql"),
+    ),
+    (
+        "0007_curse",
+        include_str!("../../migrations/0007_curse.sql"),
     ),
 ];
 

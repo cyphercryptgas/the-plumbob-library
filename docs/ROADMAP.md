@@ -38,6 +38,11 @@ never renders fake versions. Status source of truth: `FEATURE_STATUS.md`.
 
 ## Phase 5 — advanced
 
+* Patch Center (**update radar shipped** — CurseForge fingerprint
+  matching with cached results and mod-page links; the patch-day flow —
+  game-version watch, one-click pre-patch profile, disable-all-scripts —
+  is the remaining plateau; see `docs/PATCH_CENTER.md`).
+
 * Package merging (with the strongest warnings and mandatory backups).
 * Organize: category→folder mapping + planned, previewed re-organization
   moves — this also flips `in_expected_category` from constant-false to

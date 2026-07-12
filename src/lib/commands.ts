@@ -28,6 +28,8 @@ import type {
   ToggleOutcomeDto,
   SwitchPlanDto,
   SwitchOutcomeDto,
+  PatchCheckSummary,
+  CurseStatusRow,
 } from "./types";
 
 // App identity & settings -----------------------------------------------
@@ -169,3 +171,13 @@ export const previewSwitchProfile = (profileId: number) =>
 
 export const switchProfile = (profileId: number) =>
   call<SwitchOutcomeDto>("switch_profile", { profileId });
+
+// --- Patch Center ------------------------------------------------------------
+
+export const checkCurseUpdates = () =>
+  call<PatchCheckSummary>("check_curse_updates");
+
+export const curseStatus = () => call<CurseStatusRow[]>("curse_status");
+
+export const openExternal = (url: string) =>
+  call<void>("open_external", { url });

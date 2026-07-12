@@ -50,3 +50,15 @@ export function onProfileSwitchProgress(
 ): Unsub {
   return subscribe("profile://progress", handler);
 }
+
+export interface PatchProgressEvent {
+  phase: string;
+  done: number;
+  total: number;
+}
+
+export function onPatchProgress(
+  handler: (p: PatchProgressEvent) => void
+): Unsub {
+  return subscribe("patch://progress", handler);
+}

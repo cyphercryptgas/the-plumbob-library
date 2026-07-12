@@ -296,3 +296,28 @@ export interface SwitchOutcomeDto {
   failed: { path: string; message: string }[];
   activated: boolean;
 }
+
+export interface PatchCheckSummary {
+  eligible: number;
+  newlyFingerprinted: number;
+  matched: number;
+  updates: number;
+  unknown: number;
+  checkedAt: string;
+}
+
+export interface CurseStatusRow {
+  fileId: number;
+  relativePath: string;
+  currentFilename: string;
+  enabled: boolean;
+  fingerprinted: boolean;
+  modName: string | null;
+  websiteUrl: string | null;
+  matchedFileName: string | null;
+  matchedFileDate: string | null;
+  latestFileName: string | null;
+  latestFileDate: string | null;
+  updateAvailable: boolean;
+  checkedAt: string | null;
+}

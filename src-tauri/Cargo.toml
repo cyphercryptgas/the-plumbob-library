@@ -1,6 +1,6 @@
 [package]
 name = "plumbob-library"
-version = "0.6.0"
+version = "0.7.0"
 description = "A safer home for your Sims 4 mods and custom content."
 edition = "2021"
 publish = false
@@ -23,6 +23,10 @@ plumbob-core = { path = "../core" }
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 # Windows-friendly canonicalization (strips \\?\ prefixes) for path gating.
 dunce = "1"
+# Patch Center: CurseForge API (blocking client inside spawn_blocking).
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+# Open mod pages in the system browser.
+open = "5"
 
 [features]
 default = ["custom-protocol"]
