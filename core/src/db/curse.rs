@@ -109,6 +109,8 @@ pub struct CurseStatusRow {
     pub current_filename: String,
     pub enabled: bool,
     pub fingerprinted: bool,
+    pub curse_mod_id: Option<i64>,
+    pub latest_file_id: Option<i64>,
     pub mod_name: Option<String>,
     pub website_url: Option<String>,
     pub matched_file_name: Option<String>,
@@ -123,6 +125,7 @@ pub fn status(conn: &Connection) -> Result<Vec<CurseStatusRow>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT f.id, f.relative_path, f.current_filename, f.enabled,
                 f.curse_fingerprint IS NOT NULL,
+                m.curse_mod_id, m.latest_file_id,
                 m.mod_name, m.website_url, m.matched_file_name,
                 m.matched_file_date, m.latest_file_name, m.latest_file_date,
                 COALESCE(m.update_available, 0), m.checked_at
@@ -142,14 +145,16 @@ pub fn status(conn: &Connection) -> Result<Vec<CurseStatusRow>, DbError> {
                 current_filename: r.get(2)?,
                 enabled: r.get::<_, i64>(3)? != 0,
                 fingerprinted: r.get::<_, i64>(4)? != 0,
-                mod_name: r.get(5)?,
-                website_url: r.get(6)?,
-                matched_file_name: r.get(7)?,
-                matched_file_date: r.get(8)?,
-                latest_file_name: r.get(9)?,
-                latest_file_date: r.get(10)?,
-                update_available: r.get::<_, i64>(11)? != 0,
-                checked_at: r.get(12)?,
+                curse_mod_id: r.get(5)?,
+                latest_file_id: r.get(6)?,
+                mod_name: r.get(7)?,
+                website_url: r.get(8)?,
+                matched_file_name: r.get(9)?,
+                matched_file_date: r.get(10)?,
+                latest_file_name: r.get(11)?,
+                latest_file_date: r.get(12)?,
+                update_available: r.get::<_, i64>(13)? != 0,
+                checked_at: r.get(14)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.8.0 — Categories & Radar Truth
+
+* **In-game categories.** Every package is classified by what it *is* —
+  CAS, Build/Buy, Poses & Animations, Gameplay, Scripts — from its
+  resource census, using the same researched type constants the
+  conflicts policy stands on. The Library gains an "In game" filter row
+  and per-row category badges; classification refreshes with every scan
+  (run one scan to backfill an existing library).
+* **The radar tells the truth now.** The field run's lone "match" was a
+  Minecraft jar from 2014 — CurseForge's fingerprint endpoint leaks
+  cross-game collisions despite its game-scoped path. Matches whose mod
+  belongs to another game are dropped and *counted*, and the summary
+  reports raw hits and ignored collisions so a cold result is a
+  diagnosis, not a mystery.
+* **"Open Mod" goes to the app.** Update rows now deep-link into the
+  CurseForge desktop app (`curseforge://install`), falling back to the
+  website when no handler is installed.
+
+
 ## 0.7.1 — Truth in Copy
 
 * The Profiles screen still said its mod-sets were "coming next" two

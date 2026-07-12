@@ -582,8 +582,11 @@ pub fn curse_status(
 
 #[tauri::command]
 pub fn open_external(url: String) -> UiResult<()> {
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
-        return Err("Only web links can be opened.".to_string());
+    let allowed = url.starts_with("https://")
+        || url.starts_with("http://")
+        || url.starts_with("curseforge://install");
+    if !allowed {
+        return Err("Only web links and CurseForge app links can be opened.".to_string());
     }
     open::that(&url).map_err(|e| format!("Couldn't open the browser: {e}"))
 }

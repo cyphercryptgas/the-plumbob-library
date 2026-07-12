@@ -344,11 +344,12 @@ pub struct FileRow {
     pub mod_id: Option<i64>,
     pub parse_status: Option<String>,
     pub enabled: bool,
+    pub category: Option<String>,
 }
 
 const FILE_ROW_COLUMNS: &str = "id, relative_path, absolute_path, current_filename, file_type,
     size_bytes, sha256, status, missing, zero_byte, deep_script, depth, modified_at_fs,
-    mod_id, parse_status, enabled";
+    mod_id, parse_status, enabled, category";
 
 fn map_file_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<FileRow> {
     Ok(FileRow {
@@ -368,6 +369,7 @@ fn map_file_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<FileRow> {
         mod_id: r.get(13)?,
         parse_status: r.get(14)?,
         enabled: r.get::<_, i64>(15)? != 0,
+        category: r.get(16)?,
     })
 }
 
@@ -384,6 +386,12 @@ fn filter_clause(filter: Option<&str>) -> Result<&'static str, DbError> {
         "missing" => "missing = 1",
         "quarantined" => "status = 'quarantined'",
         "disabled" => "enabled = 0 AND status = 'current'",
+        "cat_cas" => "category = 'cas'",
+        "cat_buildbuy" => "category = 'buildbuy'",
+        "cat_animations" => "category = 'animations'",
+        "cat_gameplay" => "category = 'gameplay'",
+        "cat_scripts" => "category = 'scripts'",
+        "cat_other" => "category = 'other'",
         "unreadable" => "parse_status IS NOT NULL AND parse_status != 'ok'",
         other => {
             return Err(DbError::Sqlite(rusqlite::Error::InvalidParameterName(

@@ -18,6 +18,24 @@ const FILTERS: { key: LibraryFilter; label: string }[] = [
   { key: "missing", label: "Missing" },
   { key: "quarantined", label: "Quarantined" },
   { key: "disabled", label: "Disabled" },
+];
+
+const CATEGORY_BADGE: Record<string, string> = {
+  cas: "CAS",
+  buildbuy: "Build/Buy",
+  animations: "Poses",
+  gameplay: "Gameplay",
+  scripts: "Script",
+  other: "Other",
+};
+
+const CATEGORY_FILTERS: { key: LibraryFilter; label: string }[] = [
+  { key: "cat_cas", label: "CAS" },
+  { key: "cat_buildbuy", label: "Build/Buy" },
+  { key: "cat_animations", label: "Poses & Anims" },
+  { key: "cat_gameplay", label: "Gameplay" },
+  { key: "cat_scripts", label: "Scripts" },
+  { key: "cat_other", label: "Other" },
   { key: "unreadable", label: "Unreadable" },
 ];
 
@@ -172,7 +190,30 @@ export function Library(props: { initialSearch?: string }) {
                   : `Showing ${rangeStart}–${rangeEnd}`}
           </span>
         </div>
-        <div className="mt-3 flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
+        <div
+          className="mt-3 flex flex-wrap items-center gap-1.5"
+          role="group"
+          aria-label="Filter by in-game category"
+        >
+          <span className="mr-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#94875e]">
+            In game
+          </span>
+          {CATEGORY_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => setFilter(filter === f.key ? "all" : f.key)}
+              className={`rounded-control border px-2.5 py-1 text-xs transition ${
+                filter === f.key
+                  ? "border-transparent bg-accent font-medium text-ink"
+                  : "border-border-subtle text-ink-secondary hover:border-gold/60"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
           {FILTERS.map((f) => (
             <button
               key={f.key}
@@ -269,6 +310,9 @@ export function Library(props: { initialSearch?: string }) {
                     </td>
                     <td className="px-3 py-2">
                       <span className="flex flex-wrap gap-1">
+                        {f.category && CATEGORY_BADGE[f.category] ? (
+                          <Pill tone="sage">{CATEGORY_BADGE[f.category]}</Pill>
+                        ) : null}
                         {!f.enabled && f.status === "current" ? (
                           <Pill
                             tone="neutral"

@@ -297,10 +297,8 @@ pub fn list_conflict_groups(conn: &Connection) -> Result<Vec<ConflictGroup>, DbE
     }
     let mut by_fileset: BTreeMap<Vec<i64>, Pending> = BTreeMap::new();
     for (key, members) in per_key {
-        let mut distinct_hashes: Vec<&str> = members
-            .iter()
-            .filter_map(|m| m.sha256.as_deref())
-            .collect();
+        let mut distinct_hashes: Vec<&str> =
+            members.iter().filter_map(|m| m.sha256.as_deref()).collect();
         distinct_hashes.sort_unstable();
         distinct_hashes.dedup();
         if distinct_hashes.len() < 2 {
@@ -368,11 +366,13 @@ pub fn list_conflict_groups(conn: &Connection) -> Result<Vec<ConflictGroup>, DbE
         groups.push(ConflictGroup {
             members: members
                 .into_iter()
-                .map(|(file_id, relative_path, absolute_path, _)| ConflictMember {
-                    file_id,
-                    relative_path,
-                    absolute_path,
-                })
+                .map(
+                    |(file_id, relative_path, absolute_path, _)| ConflictMember {
+                        file_id,
+                        relative_path,
+                        absolute_path,
+                    },
+                )
                 .collect(),
             shared_key_count,
             sample_keys,
@@ -463,8 +463,7 @@ mod tests {
             script_depth_limit: 1,
         };
         let report = scan::scan(root, &opts, &cancel, |_| {});
-        let summary =
-            db_files::reconcile_scan(db.conn_mut(), &report, "test", &[]).unwrap();
+        let summary = db_files::reconcile_scan(db.conn_mut(), &report, "test", &[]).unwrap();
         let mut updates = Vec::new();
         for (id, abs) in &summary.needs_hash {
             updates.push((*id, hashing::sha256_file(abs).unwrap()));
@@ -503,6 +502,71 @@ mod tests {
         db.conn()
             .execute("SELECT type_id FROM package_resources LIMIT 0", [])
             .ok();
+    }
+
+    fn seed_categorized(db: &Database, rel: &str, ft: &str, parsed: bool) -> i64 {
+        db.conn()
+            .execute(
+                "INSERT INTO files (current_filename, absolute_path, relative_path,
+                    file_type, size_bytes, first_seen_at, last_seen_at, parse_status)
+                 VALUES (?1, ?2, ?1, ?3, 1, '2026-01-01T00:00:00Z',
+                         '2026-01-01T00:00:00Z', ?4)",
+                params![rel, format!("/m/{rel}"), ft,
+                        if parsed { Some("parsed") } else { None }],
+            )
+            .unwrap();
+        db.conn().last_insert_rowid()
+    }
+
+    fn add_resource(db: &Database, file_id: i64, type_id: i64) {
+        db.conn()
+            .execute(
+                "INSERT INTO package_resources (file_id, type_id, group_id, instance)
+                 VALUES (?1, ?2, 0, 1)",
+                params![file_id, type_id],
+            )
+            .unwrap();
+    }
+
+    fn category_of(db: &Database, id: i64) -> Option<String> {
+        db.conn()
+            .query_row("SELECT category FROM files WHERE id = ?1", [id], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn categories_follow_the_resource_census_with_priority() {
+        let db = Database::open_in_memory().unwrap();
+        let cas = seed_categorized(&db, "hair.package", "package", true);
+        add_resource(&db, cas, 0x034AEECB_i64); // CAS Part
+        let bb = seed_categorized(&db, "sofa.package", "package", true);
+        add_resource(&db, bb, 0xC0DB5AE7_u32 as i64); // Object Definition
+        let anim = seed_categorized(&db, "poses.package", "package", true);
+        add_resource(&db, anim, 0x6B20C4F3_i64); // Animation Clip
+        let tune = seed_categorized(&db, "cheats.package", "package", true);
+        add_resource(&db, tune, 0x62E94D38_i64); // Tuning
+        let script = seed_categorized(&db, "mc.ts4script", "ts4script", false);
+        let stray = seed_categorized(&db, "stray.package", "package", true);
+        add_resource(&db, stray, 0x220557DA_i64); // String Table only
+        let unparsed = seed_categorized(&db, "new.package", "package", false);
+        // Priority: a CAS item that also ships clips is CAS, not a pose pack.
+        let mixed = seed_categorized(&db, "acc_rig.package", "package", true);
+        add_resource(&db, mixed, 0x6B20C4F3_i64);
+        add_resource(&db, mixed, 0x034AEECB_i64);
+
+        classify_categories(db.conn()).unwrap();
+
+        assert_eq!(category_of(&db, cas).as_deref(), Some("cas"));
+        assert_eq!(category_of(&db, bb).as_deref(), Some("buildbuy"));
+        assert_eq!(category_of(&db, anim).as_deref(), Some("animations"));
+        assert_eq!(category_of(&db, tune).as_deref(), Some("gameplay"));
+        assert_eq!(category_of(&db, script).as_deref(), Some("scripts"));
+        assert_eq!(category_of(&db, stray).as_deref(), Some("other"));
+        assert_eq!(category_of(&db, unparsed), None);
+        assert_eq!(category_of(&db, mixed).as_deref(), Some("cas"));
+        // Idempotent: a second pass changes nothing.
+        classify_categories(db.conn()).unwrap();
+        assert_eq!(category_of(&db, mixed).as_deref(), Some("cas"));
     }
 
     #[test]
@@ -545,8 +609,7 @@ mod tests {
 
     #[test]
     fn parse_is_content_keyed_incremental() {
-        let (mut db, dir, root) =
-            pipeline_with(&[("a.package", vec![(CASP, 0, 0x11)])], &[]);
+        let (mut db, dir, root) = pipeline_with(&[("a.package", vec![(CASP, 0, 0x11)])], &[]);
         assert_eq!(parse_all(&mut db, &root).parsed_ok, 1);
         // Nothing changed: second pass finds no work — including no retry of
         // anything already parsed.
@@ -576,8 +639,7 @@ mod tests {
 
     #[test]
     fn parse_errors_are_not_retried_until_content_changes() {
-        let (mut db, _dir, root) =
-            pipeline_with(&[], &[("bad.package", b"not a dbpf at all")]);
+        let (mut db, _dir, root) = pipeline_with(&[], &[("bad.package", b"not a dbpf at all")]);
         let first = parse_all(&mut db, &root);
         assert_eq!(first.parse_errors, 1);
         let second = parse_all(&mut db, &root);
@@ -610,8 +672,7 @@ mod tests {
 
     #[test]
     fn deleting_a_file_row_cascades_its_resources() {
-        let (mut db, _dir, root) =
-            pipeline_with(&[("a.package", vec![(CASP, 0, 0x1)])], &[]);
+        let (mut db, _dir, root) = pipeline_with(&[("a.package", vec![(CASP, 0, 0x1)])], &[]);
         parse_all(&mut db, &root);
         let id = file_id(&db, "a.package");
         db.conn()
@@ -627,8 +688,7 @@ mod tests {
     #[test]
     fn instance_bit_cast_round_trips_high_values() {
         let big = 0xDEADBEEF12345678u64; // above i64::MAX as unsigned
-        let (mut db, _dir, root) =
-            pipeline_with(&[("a.package", vec![(TUNING, 5, big)])], &[]);
+        let (mut db, _dir, root) = pipeline_with(&[("a.package", vec![(TUNING, 5, big)])], &[]);
         parse_all(&mut db, &root);
         let stored: i64 = db
             .conn()
@@ -677,14 +737,23 @@ mod tests {
                 ),
                 (
                     "Alpha/early.package",
-                    vec![(TUNING, 0, 0x1), (TUNING, 0, 0x2), (TUNING, 0, 0x3), (CASP, 9, 9)],
+                    vec![
+                        (TUNING, 0, 0x1),
+                        (TUNING, 0, 0x2),
+                        (TUNING, 0, 0x3),
+                        (CASP, 9, 9),
+                    ],
                 ),
             ],
             &[],
         );
         parse_all(&mut db, &root);
         let groups = list_conflict_groups(db.conn()).unwrap();
-        assert_eq!(groups.len(), 1, "three shared keys, one file set, one group");
+        assert_eq!(
+            groups.len(),
+            1,
+            "three shared keys, one file set, one group"
+        );
         assert_eq!(groups[0].shared_key_count, 3);
         assert_eq!(groups[0].sample_keys.len(), 3);
         // Name-based order: Alpha loads first, Zeta last (presumptive winner).
@@ -748,7 +817,10 @@ mod tests {
         let (mut db, _dir, root) = pipeline_with(
             &[
                 ("CoolMod/base.package", vec![(TUNING, 0, 0xE)]),
-                ("CoolMod/addon.package", vec![(TUNING, 0, 0xE), (CASP, 1, 1)]),
+                (
+                    "CoolMod/addon.package",
+                    vec![(TUNING, 0, 0xE), (CASP, 1, 1)],
+                ),
             ],
             &[],
         );
@@ -766,4 +838,49 @@ mod tests {
         parse_all(&mut db2, &root2);
         assert!(!list_conflict_groups(db2.conn()).unwrap()[0].likely_intentional);
     }
+}
+
+// ---------------------------------------------------------------------------
+// In-game category classification
+// ---------------------------------------------------------------------------
+
+/// What a mod *is*, derived from its resource census. The type constants
+/// are the same researched set `crate::dbpf::type_name` documents; the
+/// priority order means a CAS item that also ships animation clips reads
+/// as CAS, not as a pose pack.
+///
+/// Values: `cas` · `buildbuy` · `animations` · `gameplay` · `scripts` ·
+/// `other` (parsed, but none of the known families) · NULL (unsupported
+/// or not yet parsed).
+pub fn classify_categories(conn: &Connection) -> Result<usize, DbError> {
+    const CAS: &str = "55242443, 22681673, 3936561885, 55867754, 55959718, 108833297";
+    //                CASP        GEOM      CAS Preset  SkinTone  BoneDelta BlendGeo
+    const BUILDBUY: &str = "832458525, 3235601127, 3540272417, 3548561239, 62178845";
+    //                     ObjCatalog ObjDef       ObjSlot      Footprint   Light
+    const ANIM: &str = "1797309683"; // Animation Clip
+    const GAMEPLAY: &str = "1659456824, 1415235194"; // Tuning (binary), SimData
+    let sql = format!(
+        "UPDATE files SET category = CASE
+            WHEN file_type = 'ts4script' THEN 'scripts'
+            WHEN file_type <> 'package' THEN NULL
+            WHEN parse_status IS NULL OR parse_status <> 'parsed' THEN NULL
+            WHEN EXISTS (SELECT 1 FROM package_resources r
+                         WHERE r.file_id = files.id AND r.type_id IN ({CAS}))
+                THEN 'cas'
+            WHEN EXISTS (SELECT 1 FROM package_resources r
+                         WHERE r.file_id = files.id AND r.type_id IN ({BUILDBUY}))
+                THEN 'buildbuy'
+            WHEN EXISTS (SELECT 1 FROM package_resources r
+                         WHERE r.file_id = files.id AND r.type_id IN ({ANIM}))
+                THEN 'animations'
+            WHEN EXISTS (SELECT 1 FROM package_resources r
+                         WHERE r.file_id = files.id AND r.type_id IN ({GAMEPLAY}))
+                THEN 'gameplay'
+            WHEN EXISTS (SELECT 1 FROM package_resources r
+                         WHERE r.file_id = files.id)
+                THEN 'other'
+            ELSE NULL
+         END"
+    );
+    Ok(conn.execute(&sql, [])?)
 }

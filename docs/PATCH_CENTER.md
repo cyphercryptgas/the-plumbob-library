@@ -31,7 +31,15 @@ the whole library once (stored in `files.curse_fingerprint`, migration
    RFC 3339 dates with *varying sub-second precision*, and `'Z'` outranks
    digits lexically — the comparator pads fractional parts because the
    naive string comparison looked right and wasn't (there's a test).
-5. Replace the local cache (`curse_matches`) atomically: the radar
+5. **Cross-game hygiene**: the fingerprint endpoint leaks exact matches
+   from other games despite its game-scoped path (a Minecraft jar proved
+   it in the field). Every hit must belong to a Sims 4 mod or it is
+   dropped — and counted in the summary as an ignored collision, so a
+   cold result is a diagnosis rather than a mystery. Update rows
+   deep-link into the CurseForge desktop app via
+   `curseforge://install?addonId=…&fileId=…`, with the website as
+   fallback.
+6. Replace the local cache (`curse_matches`) atomically: the radar
    always shows one coherent snapshot with one `checked_at`.
 
 ### Privacy

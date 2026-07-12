@@ -67,6 +67,7 @@ export interface FileRow {
   modId: number | null;
   parseStatus: string | null;
   enabled: boolean;
+  category: string | null;
 }
 
 export interface DuplicateMemberView {
@@ -194,7 +195,13 @@ export type LibraryFilter =
   | "missing"
   | "quarantined"
   | "disabled"
-  | "unreadable";
+  | "unreadable"
+  | "cat_cas"
+  | "cat_buildbuy"
+  | "cat_animations"
+  | "cat_gameplay"
+  | "cat_scripts"
+  | "cat_other";
 
 export interface ConflictMember {
   fileId: number;
@@ -300,6 +307,8 @@ export interface SwitchOutcomeDto {
 export interface PatchCheckSummary {
   eligible: number;
   newlyFingerprinted: number;
+  rawMatches: number;
+  otherGame: number;
   matched: number;
   updates: number;
   unknown: number;
@@ -312,6 +321,8 @@ export interface CurseStatusRow {
   currentFilename: string;
   enabled: boolean;
   fingerprinted: boolean;
+  curseModId: number | null;
+  latestFileId: number | null;
   modName: string | null;
   websiteUrl: string | null;
   matchedFileName: string | null;

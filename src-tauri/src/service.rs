@@ -286,6 +286,8 @@ pub fn run_scan_pipeline(
 
     let duplicate_groups = {
         let mut guard = lock_db(dbm)?;
+        // Fresh resources → fresh in-game categories, same lock.
+        db::packages::classify_categories(guard.conn()).map_err(err_str)?;
         let facts = db::dupes::load_file_facts(guard.conn()).map_err(err_str)?;
         let groups = duplicates::group_exact(&facts);
         // The insert count excludes fingerprints the user has dismissed, so
@@ -1068,6 +1070,12 @@ fn emit_patch(app: &AppHandle, phase: &str, done: usize, total: usize) {
 pub struct PatchCheckSummary {
     pub eligible: usize,
     pub newly_fingerprinted: usize,
+    /// Every exact fingerprint hit CurseForge returned, before filtering.
+    pub raw_matches: usize,
+    /// Hits whose mod belongs to another game — fingerprint collisions the
+    /// endpoint leaks despite its game-scoped path. Dropped, and counted so
+    /// the number is visible instead of mysterious.
+    pub other_game: usize,
     pub matched: usize,
     pub updates: usize,
     pub unknown: usize,
@@ -1153,7 +1161,19 @@ pub fn check_curse_updates(
         emit_patch(app, "Resolving mods", i + 1, mod_batches.len());
     }
 
-    // Phase 4: compare and cache.
+    // Phase 4: compare and cache. The fingerprint endpoint leaks matches
+    // from other games (a Minecraft jar proved it in the field), so every
+    // hit must belong to a Sims 4 mod or it is dropped — and counted.
+    let raw_matches = matched_files.len();
+    let mut other_game = 0usize;
+    matched_files.retain(|f| match mods.get(&f.mod_id) {
+        Some(m) if m.game_id == game_id => true,
+        Some(_) => {
+            other_game += 1;
+            false
+        }
+        None => false,
+    });
     let by_fingerprint: std::collections::HashMap<i64, &crate::curse_api::CurseFile> =
         matched_files
             .iter()
@@ -1210,6 +1230,8 @@ pub fn check_curse_updates(
     Ok(PatchCheckSummary {
         eligible,
         newly_fingerprinted,
+        raw_matches,
+        other_game,
         matched,
         updates,
         unknown: eligible.saturating_sub(matched),

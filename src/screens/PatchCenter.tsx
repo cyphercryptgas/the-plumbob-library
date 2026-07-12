@@ -46,6 +46,26 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
   }, []);
   useEffect(() => onPatchProgress(setProgress), []);
 
+  const openMod = async (r: CurseStatusRow) => {
+    // Prefer the CurseForge desktop app; fall back to the website when the
+    // protocol has no handler on this machine.
+    if (r.curseModId && r.latestFileId) {
+      try {
+        await openExternal(
+          `curseforge://install?addonId=${r.curseModId}&fileId=${r.latestFileId}`
+        );
+        return;
+      } catch {
+        /* no app handler — fall through to the web */
+      }
+    }
+    if (r.websiteUrl) {
+      openExternal(r.websiteUrl).catch(reportError);
+    } else {
+      reportError("CurseForge didn't provide a page for this mod.");
+    }
+  };
+
   const check = async () => {
     setChecking(true);
     setSummary(null);
@@ -128,7 +148,11 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
               ? ` (${summary.newlyFingerprinted.toLocaleString()} newly fingerprinted)`
               : ""}
             : {summary.matched.toLocaleString()} known to CurseForge,{" "}
-            {summary.updates.toLocaleString()} with updates.
+            {summary.updates.toLocaleString()} with updates
+            {summary.otherGame > 0
+              ? ` (${summary.otherGame.toLocaleString()} cross-game fingerprint ${summary.otherGame === 1 ? "collision" : "collisions"} ignored)`
+              : ""}
+            .
           </p>
         ) : null}
       </Card>
@@ -185,18 +209,13 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
                   </span>
                 </span>
                 {!r.enabled ? <Pill tone="neutral">off</Pill> : null}
-                {r.websiteUrl ? (
-                  <Button
-                    variant="quiet"
-                    onClick={() =>
-                      void openExternal(r.websiteUrl as string).catch(
-                        reportError
-                      )
-                    }
-                  >
-                    Open mod page
-                  </Button>
-                ) : null}
+                <Button
+                  variant="quiet"
+                  title="Opens in the CurseForge app when installed, otherwise the website."
+                  onClick={() => void openMod(r)}
+                >
+                  Open Mod
+                </Button>
               </div>
             ))}
           </div>

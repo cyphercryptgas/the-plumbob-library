@@ -68,6 +68,7 @@ pub struct CurseFile {
 #[serde(rename_all = "camelCase")]
 pub struct CurseMod {
     pub id: i64,
+    pub game_id: i64,
     pub name: String,
     #[serde(default)]
     pub links: ModLinks,
