@@ -24,6 +24,8 @@ export interface AppSettings {
   stopOnError: boolean;
   theme: string;
   reducedMotion: boolean;
+  /** Stored only in the local database; used by Patch Center (Phase 3). */
+  curseforgeApiKey: string | null;
 }
 
 export interface ModsFolderCheck {

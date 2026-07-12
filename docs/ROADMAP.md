@@ -18,7 +18,9 @@ never renders fake versions. Status source of truth: `FEATURE_STATUS.md`.
 * Installation manifests: record archive → extracted-files mapping at
   install time, upgrading duplicate recommendations from the current
   "linked to a mod record" approximation to true manifest association.
-* CurseForge provider (**Requires external credentials**): metadata, update
+* CurseForge provider (**Requires external credentials** — the API key
+  intake shipped in Settings → Connections with v0.2.0; the key is stored
+  only in the local database): metadata, update
   checks, per-mod source links. Strictly read-only against the API at first.
 * Patch Center: post-game-update triage — what's flagged, what's stale,
   creator-link jump-offs.

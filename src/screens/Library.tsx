@@ -32,10 +32,10 @@ const TYPE_TONES: Record<string, "sage" | "blue" | "rose" | "neutral" | "warning
   unsupported: "warning",
 };
 
-export function Library() {
+export function Library(props: { initialSearch?: string }) {
   const { libraryVersion, reportError } = useApp();
-  const [search, setSearch] = useState("");
-  const [query, setQuery] = useState("");
+  const [search, setSearch] = useState(props.initialSearch ?? "");
+  const [query, setQuery] = useState(props.initialSearch?.trim() ?? "");
   const [filter, setFilter] = useState<LibraryFilter>("all");
   const [page, setPage] = useState(0);
   const [rows, setRows] = useState<FileRow[]>([]);

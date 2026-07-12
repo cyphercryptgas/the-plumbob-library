@@ -229,6 +229,26 @@ export function Settings() {
       </Card>
 
       <Card>
+        <SectionTitle hint="Credentials live only in your local database on this machine.">
+          Connections
+        </SectionTitle>
+        <Field
+          label="CurseForge API key"
+          hint="Powers the future Patch Center: mod metadata and update checks. Paste your key here — it is stored locally, never committed anywhere, and unused until Patch Center ships."
+        >
+          <input
+            type="password"
+            value={draft.curseforgeApiKey ?? ""}
+            onChange={(e) => update("curseforgeApiKey", e.target.value || null)}
+            placeholder="Paste your CurseForge API key"
+            aria-label="CurseForge API key"
+            autoComplete="off"
+            className="w-full max-w-md rounded-control border border-border-subtle bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-muted"
+          />
+        </Field>
+      </Card>
+
+      <Card>
         <SectionTitle>About</SectionTitle>
         {info ? (
           <dl className="space-y-1 text-sm">

@@ -5,12 +5,22 @@
 import type { ReactNode } from "react";
 import mark from "../assets/mark.png";
 
-export function Card(props: { children: ReactNode; className?: string }) {
+export function Card(props: {
+  children: ReactNode;
+  className?: string;
+  /** Gilded cartouche frame overlay (approved v7 chrome). Default on. */
+  frame?: boolean;
+  /** Spliced edge finials — true for all edges, "tb" for top/bottom. */
+  finials?: boolean | "tb";
+}) {
+  const framed = props.frame ?? true;
   return (
     <section
-      className={`elev-card rounded-card border border-border-subtle p-5 ${props.className ?? ""}`}
+      className={`elev-card relative rounded-card p-5 ${props.className ?? ""}`}
     >
-      {props.children}
+      {framed ? <CartoucheFrame finials={props.finials} /> : null}
+      <span aria-hidden="true" className="card-grain" />
+      <div className="relative">{props.children}</div>
     </section>
   );
 }
@@ -213,21 +223,25 @@ export function Stat(props: {
   icon?: IconName;
 }) {
   return (
-    <div className="gold-edge-card rounded-card px-3 py-4 text-center">
-      {props.icon ? (
-        <span className="icon-chip mx-auto flex h-11 w-11 items-center justify-center rounded-xl">
-          <Icon name={props.icon} size={20} />
-        </span>
-      ) : null}
-      <div className="mt-2 text-[10.5px] font-bold uppercase tracking-[0.13em] text-[#94875e]">
-        {props.label}
+    <div className="elev-card relative rounded-card px-3 py-5 text-center">
+      <CartoucheFrame finials="tb" />
+      <span aria-hidden="true" className="card-grain" />
+      <div className="relative">
+        {props.icon ? (
+          <span className="icon-chip mx-auto flex h-12 w-12 items-center justify-center rounded-xl">
+            <Icon name={props.icon} size={21} />
+          </span>
+        ) : null}
+        <div className="mt-2.5 text-[10.5px] font-bold uppercase tracking-[0.13em] text-[#94875e]">
+          {props.label}
+        </div>
+        <div className="mt-0.5 font-display text-[28px] font-bold leading-tight text-ink [text-shadow:0_1px_0_#fff]">
+          {props.value}
+        </div>
+        {props.sub ? (
+          <div className="mt-0.5 text-[11.5px] text-[#4d8b63]">{props.sub}</div>
+        ) : null}
       </div>
-      <div className="mt-0.5 font-display text-[26px] font-bold leading-tight text-ink [text-shadow:0_1px_0_#fff]">
-        {props.value}
-      </div>
-      {props.sub ? (
-        <div className="mt-0.5 text-[11.5px] text-[#4d8b63]">{props.sub}</div>
-      ) : null}
     </div>
   );
 }
@@ -287,7 +301,8 @@ export type IconName =
   | "dashboard" | "library" | "duplicates" | "conflicts" | "quarantine"
   | "backups" | "activity" | "settings" | "calendar" | "profiles"
   | "file" | "database" | "package" | "code" | "archive" | "alert"
-  | "lock" | "help" | "sparkle";
+  | "lock" | "help" | "sparkle"
+  | "search";
 
 const ICON_PATHS: Record<IconName, ReactNode> = {
   dashboard: (
@@ -344,6 +359,12 @@ const ICON_PATHS: Record<IconName, ReactNode> = {
       <circle cx="9" cy="8" r="3.5" />
       <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" />
       <path d="M16.5 6.9a2.6 2.6 0 1 1 0 4.6M21 20c0-2.5-1.6-4.7-3.8-5.5" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="M20 20l-4.2-4.2" />
     </>
   ),
   file: (
@@ -489,7 +510,11 @@ function CornerScroll(props: { size: number }) {
 /** The gilded cartouche frame — engraved edge lines, scroll corners, and
  * optional spliced finials, floating as a zero-layout overlay. Built from
  * primitives (divs + fixed SVGs) so no rendering path can drop segments. */
-export function CartoucheFrame(props: { large?: boolean; finials?: boolean }) {
+export function CartoucheFrame(props: {
+  large?: boolean;
+  /** true = finials on all four edges; "tb" = top/bottom only (stat tiles). */
+  finials?: boolean | "tb";
+}) {
   const inset = props.large ? -10 : -6;
   const corner = props.large ? 38 : 30;
   const l1 = 3.5; // main line inset within the overlay
@@ -527,12 +552,16 @@ export function CartoucheFrame(props: { large?: boolean; finials?: boolean }) {
           <span className="cart-fin" style={{ left: "50%", bottom: l1 - 8.5, transform: "translateX(-50%) rotate(180deg)" }}>
             <Finial />
           </span>
-          <span className="cart-fin" style={{ top: "50%", left: l1 - 30.5, transform: "translateY(-50%) rotate(-90deg)" }}>
-            <Finial />
-          </span>
-          <span className="cart-fin" style={{ top: "50%", right: l1 - 30.5, transform: "translateY(-50%) rotate(90deg)" }}>
-            <Finial />
-          </span>
+          {props.finials === true ? (
+            <>
+              <span className="cart-fin" style={{ top: "50%", left: l1 - 30.5, transform: "translateY(-50%) rotate(-90deg)" }}>
+                <Finial />
+              </span>
+              <span className="cart-fin" style={{ top: "50%", right: l1 - 30.5, transform: "translateY(-50%) rotate(90deg)" }}>
+                <Finial />
+              </span>
+            </>
+          ) : null}
         </>
       ) : null}
     </span>

@@ -28,6 +28,10 @@ pub struct AppSettings {
     pub stop_on_error: bool,
     pub theme: String,
     pub reduced_motion: bool,
+    /// CurseForge API key for the future Patch Center. Lives only in the
+    /// local database — never in the repo, never sent anywhere except the
+    /// CurseForge API itself once Phase 3 ships.
+    pub curseforge_api_key: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -43,6 +47,7 @@ impl Default for AppSettings {
             stop_on_error: true,
             theme: "light".into(),
             reduced_motion: false,
+            curseforge_api_key: None,
         }
     }
 }
@@ -57,6 +62,7 @@ const K_HASH_ON_SCAN: &str = "hash_on_scan";
 const K_STOP_ON_ERROR: &str = "stop_on_error";
 const K_THEME: &str = "theme";
 const K_REDUCED_MOTION: &str = "reduced_motion";
+const K_CURSEFORGE_KEY: &str = "curseforge_api_key";
 
 pub fn load(conn: &Connection) -> Result<AppSettings, DbError> {
     let mut s = AppSettings::default();
@@ -87,6 +93,9 @@ pub fn load(conn: &Connection) -> Result<AppSettings, DbError> {
             K_STOP_ON_ERROR => s.stop_on_error = value == "true",
             K_THEME => s.theme = value,
             K_REDUCED_MOTION => s.reduced_motion = value == "true",
+            K_CURSEFORGE_KEY => {
+                s.curseforge_api_key = if value.is_empty() { None } else { Some(value) }
+            }
             // Unknown keys are ignored (forward compatibility), never dropped.
             _ => {}
         }
@@ -114,6 +123,10 @@ pub fn save(conn: &mut Connection, s: &AppSettings) -> Result<(), DbError> {
         (K_STOP_ON_ERROR, s.stop_on_error.to_string()),
         (K_THEME, s.theme.clone()),
         (K_REDUCED_MOTION, s.reduced_motion.to_string()),
+        (
+            K_CURSEFORGE_KEY,
+            s.curseforge_api_key.clone().unwrap_or_default(),
+        ),
     ];
 
     let tx = conn.transaction()?;
@@ -178,6 +191,7 @@ mod tests {
             stop_on_error: false,
             theme: "light".into(),
             reduced_motion: true,
+            curseforge_api_key: Some("cf-test-key-not-real".into()),
         };
         save(db.conn_mut(), &s).unwrap();
         assert_eq!(load(db.conn()).unwrap(), s);
