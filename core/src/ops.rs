@@ -194,6 +194,135 @@ pub fn verified_move(
 }
 
 // ---------------------------------------------------------------------------
+// Enable / disable (in-place rename)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ToggleRequest {
+    /// The file's *logical* path relative to the Mods root (no `.off`).
+    pub relative_path: PathBuf,
+    /// When provided, the file must still match this hash or the step fails.
+    pub expected_sha256: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ToggleEntry {
+    pub relative_path: PathBuf,
+    /// The on-disk path after the toggle.
+    pub physical_absolute: PathBuf,
+    pub sha256: String,
+    pub enabled: bool,
+}
+
+/// Enable or disable mods by verified in-place rename: `X.package` ⇄
+/// `X.package.off`. The file never leaves its folder; the game simply stops
+/// (or starts) seeing it. Both directions refuse if the destination name is
+/// already occupied — silently replacing a file is exactly what this app
+/// exists to prevent.
+pub fn set_files_enabled(
+    mods: &SafeRoot,
+    requests: &[ToggleRequest],
+    enable: bool,
+    stop_on_error: bool,
+    journal: &mut dyn JournalSink,
+) -> BatchOutcome<ToggleEntry> {
+    let operation_id = new_operation_id();
+    let kind = if enable { "mods_enable" } else { "mods_disable" };
+    journal.record(JournalEvent::OperationStarted {
+        operation_id: operation_id.clone(),
+        kind: kind.into(),
+        total_steps: requests.len(),
+    });
+
+    let mut completed: Vec<ToggleEntry> = Vec::new();
+    let mut failed: Vec<StepFailure> = Vec::new();
+    let mut halted_early = false;
+
+    for (i, req) in requests.iter().enumerate() {
+        let step = i + 1;
+        let result = (|| -> Result<ToggleEntry, OpError> {
+            let logical = mods.resolve_relative(&req.relative_path)?;
+            let disabled = {
+                let mut name = logical
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                name.push_str(crate::scan::DISABLED_SUFFIX);
+                logical.with_file_name(name)
+            };
+            let (source, destination) = if enable {
+                (disabled, logical)
+            } else {
+                (logical, disabled)
+            };
+            if destination.exists() {
+                return Err(OpError::Io {
+                    path: destination,
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::AlreadyExists,
+                        "a file already occupies the target name — resolve it \
+                         manually before toggling",
+                    ),
+                });
+            }
+            let sha256 = verified_move(&source, &destination, req.expected_sha256.as_deref())?;
+            Ok(ToggleEntry {
+                relative_path: req.relative_path.clone(),
+                physical_absolute: destination,
+                sha256,
+                enabled: enable,
+            })
+        })();
+
+        match result {
+            Ok(entry) => {
+                journal.record(JournalEvent::StepSucceeded {
+                    operation_id: operation_id.clone(),
+                    step,
+                    action: if enable { "enable" } else { "disable" }.into(),
+                    source: mods
+                        .resolve_relative(&req.relative_path)
+                        .unwrap_or_else(|_| req.relative_path.clone()),
+                    destination: Some(entry.physical_absolute.clone()),
+                    sha256: Some(entry.sha256.clone()),
+                });
+                completed.push(entry);
+            }
+            Err(e) => {
+                journal.record(JournalEvent::StepFailed {
+                    operation_id: operation_id.clone(),
+                    step,
+                    action: if enable { "enable" } else { "disable" }.into(),
+                    source: req.relative_path.clone(),
+                    message: e.to_string(),
+                });
+                failed.push(StepFailure {
+                    source: req.relative_path.clone(),
+                    message: e.to_string(),
+                });
+                if stop_on_error {
+                    halted_early = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    journal.record(JournalEvent::OperationFinished {
+        operation_id: operation_id.clone(),
+        status: if failed.is_empty() { "completed" } else { "failed" }.into(),
+        succeeded: completed.len(),
+        failed: failed.len(),
+    });
+    BatchOutcome {
+        operation_id,
+        completed,
+        failed,
+        halted_early,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Quarantine
 // ---------------------------------------------------------------------------
 

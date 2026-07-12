@@ -87,7 +87,18 @@ function opIcon(type: string): IconName {
   return "activity";
 }
 
+const OP_TITLES: Record<string, string> = {
+  troubleshoot_round: "Troubleshoot — round arranged",
+  troubleshoot_confirm: "Troubleshoot — confirmation arranged",
+  troubleshoot_restore: "Troubleshoot — library restored",
+  troubleshoot_abort: "Troubleshoot — hunt aborted, all restored",
+  mods_disable: "Mods disabled in place",
+  mods_enable: "Mods re-enabled",
+};
+
 function opTitle(op: OperationView): string {
+  const friendly = OP_TITLES[op.operationType];
+  if (friendly) return friendly;
   if (op.summary) return op.summary;
   const t = op.operationType.replace(/_/g, " ");
   return t.charAt(0).toUpperCase() + t.slice(1);
@@ -160,6 +171,11 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
       attention.push({ label: `${plural(counts.missing, "missing file")}`, tone: "warning" });
     if (counts.zeroByte > 0)
       attention.push({ label: `${plural(counts.zeroByte, "zero-byte file")}`, tone: "warning" });
+    if (counts.disabled > 0)
+      attention.push({
+        label: `${plural(counts.disabled, "mod")} disabled`,
+        tone: "warning",
+      });
     if (counts.deepScripts > 0)
       attention.push({
         label: `${plural(counts.deepScripts, "script")} nested too deep`,

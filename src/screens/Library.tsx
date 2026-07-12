@@ -17,6 +17,7 @@ const FILTERS: { key: LibraryFilter; label: string }[] = [
   { key: "deep-scripts", label: "Deep scripts" },
   { key: "missing", label: "Missing" },
   { key: "quarantined", label: "Quarantined" },
+  { key: "disabled", label: "Disabled" },
   { key: "unreadable", label: "Unreadable" },
 ];
 
@@ -43,6 +44,27 @@ export function Library(props: { initialSearch?: string }) {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [quarantining, setQuarantining] = useState<number[] | null>(null);
+  const [toggling, setToggling] = useState(false);
+
+  const toggleFiles = async (ids: number[], enable: boolean) => {
+    setToggling(true);
+    try {
+      const out = await api.setFilesEnabled(ids, enable);
+      if (out.failed.length > 0) {
+        reportError(
+          `${out.failed.length} file(s) refused to ${enable ? "enable" : "disable"}: ` +
+            out.failed
+              .slice(0, 3)
+              .map((f) => `${f.path} — ${f.message}`)
+              .join("; ")
+        );
+      }
+    } catch (e) {
+      reportError(e);
+    } finally {
+      setToggling(false);
+    }
+  };
 
   // Debounce typing into the effective query.
   useEffect(() => {
@@ -120,9 +142,25 @@ export function Library(props: { initialSearch?: string }) {
             />
           </div>
           {selected.size > 0 ? (
-            <Button onClick={() => setQuarantining([...selected])}>
-              Set aside {plural(selected.size, "file")}…
-            </Button>
+            <>
+              <Button onClick={() => setQuarantining([...selected])}>
+                Set aside {plural(selected.size, "file")}…
+              </Button>
+              <Button
+                variant="quiet"
+                disabled={toggling}
+                onClick={() => void toggleFiles([...selected], false)}
+              >
+                Disable
+              </Button>
+              <Button
+                variant="quiet"
+                disabled={toggling}
+                onClick={() => void toggleFiles([...selected], true)}
+              >
+                Enable
+              </Button>
+            </>
           ) : null}
           <span className="text-xs text-ink-muted">
             {loading
@@ -208,7 +246,10 @@ export function Library(props: { initialSearch?: string }) {
                       />
                     </td>
                     <td className="max-w-[380px] px-3 py-2">
-                      <div className="truncate font-medium text-ink" title={f.relativePath}>
+                      <div
+                        className={`truncate font-medium ${f.enabled ? "text-ink" : "text-ink-muted"}`}
+                        title={f.relativePath}
+                      >
                         {f.currentFilename}
                       </div>
                       <div className="truncate text-xs text-ink-muted" title={f.relativePath}>
@@ -228,6 +269,14 @@ export function Library(props: { initialSearch?: string }) {
                     </td>
                     <td className="px-3 py-2">
                       <span className="flex flex-wrap gap-1">
+                        {!f.enabled && f.status === "current" ? (
+                          <Pill
+                            tone="neutral"
+                            title="Disabled in place — the game ignores it; the file never moved."
+                          >
+                            off
+                          </Pill>
+                        ) : null}
                         {f.missing ? <Pill tone="warning">missing</Pill> : null}
                         {f.status === "quarantined" ? (
                           <Pill tone="rose">quarantined</Pill>
@@ -250,15 +299,34 @@ export function Library(props: { initialSearch?: string }) {
                     </td>
                     <td className="px-3 py-2 text-right">
                       {!f.missing && f.status !== "quarantined" ? (
-                        <Button
-                          variant="quiet"
-                          onClick={() =>
-                            api.revealInExplorer(f.absolutePath).catch(reportError)
-                          }
-                          title="Reveal in file manager"
-                        >
-                          Reveal
-                        </Button>
+                        <span className="flex justify-end gap-1">
+                          {f.fileType === "package" ||
+                          f.fileType === "ts4script" ? (
+                            <Button
+                              variant="quiet"
+                              disabled={toggling}
+                              onClick={() =>
+                                void toggleFiles([f.id], !f.enabled)
+                              }
+                              title={
+                                f.enabled
+                                  ? "Rename in place so the game ignores it"
+                                  : "Rename back so the game loads it"
+                              }
+                            >
+                              {f.enabled ? "Disable" : "Enable"}
+                            </Button>
+                          ) : null}
+                          <Button
+                            variant="quiet"
+                            onClick={() =>
+                              api.revealInExplorer(f.absolutePath).catch(reportError)
+                            }
+                            title="Reveal in file manager"
+                          >
+                            Reveal
+                          </Button>
+                        </span>
                       ) : null}
                     </td>
                   </tr>

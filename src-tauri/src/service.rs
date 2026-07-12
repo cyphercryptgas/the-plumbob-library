@@ -847,3 +847,79 @@ pub fn delete_profile(dbm: &Mutex<Database>, profile_id: i64) -> UiResult<()> {
     let guard = lock_db(dbm)?;
     db::profiles::delete_profile(guard.conn(), profile_id).map_err(err_str)
 }
+
+// ---------------------------------------------------------------------------
+// Enable / disable
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ToggleOutcomeDto {
+    pub completed: usize,
+    pub skipped: usize,
+    pub failed: Vec<FailedStep>,
+}
+
+/// Guard → validate → verified in-place renames → row sync. Disabled mods
+/// never leave their folder; the game just stops seeing them.
+pub fn set_files_enabled(
+    app: &AppHandle,
+    dbm: &Mutex<Database>,
+    data_dir: &Path,
+    file_ids: &[i64],
+    enable: bool,
+) -> UiResult<ToggleOutcomeDto> {
+    ensure_game_closed()?;
+    if file_ids.is_empty() {
+        return Err("Nothing selected.".to_string());
+    }
+    let mut guard = lock_db(dbm)?;
+    if let Some(id) =
+        db::troubleshoot::active_session_id(guard.conn()).map_err(err_str)?
+    {
+        return Err(format!(
+            "Troubleshooting session #{id} is active. Finish or abort the \
+             hunt before enabling or disabling mods — the hunt is moving \
+             files and the two must not overlap."
+        ));
+    }
+    let roots = resolve_roots(&guard, data_dir)?;
+    let rows = db::files::files_by_ids(guard.conn(), file_ids).map_err(err_str)?;
+    if rows.iter().any(|r| r.missing) {
+        return Err(
+            "A selected file is missing on disk. Re-scan before toggling."
+                .to_string(),
+        );
+    }
+    if rows.iter().any(|r| r.status == "quarantined") {
+        return Err("Quarantined files are managed from the Quarantine screen.".to_string());
+    }
+    let (todo, skipped): (Vec<_>, Vec<_>) =
+        rows.iter().partition(|r| r.enabled != enable);
+    let requests: Vec<ops::ToggleRequest> = todo
+        .iter()
+        .map(|r| ops::ToggleRequest {
+            relative_path: PathBuf::from(&r.relative_path),
+            expected_sha256: r.sha256.clone(),
+        })
+        .collect();
+    let mut journal = plumbob_core::ops::VecJournal::default();
+    let outcome = ops::set_files_enabled(&roots.mods, &requests, enable, false, &mut journal);
+    replay_journal(&guard, journal.0)?;
+    db::ops::record_toggle_outcome(guard.conn_mut(), &outcome).map_err(err_str)?;
+    if !outcome.completed.is_empty() {
+        let _ = app.emit("library://changed", "toggle");
+    }
+    Ok(ToggleOutcomeDto {
+        completed: outcome.completed.len(),
+        skipped: skipped.len(),
+        failed: outcome
+            .failed
+            .iter()
+            .map(|f| FailedStep {
+                path: f.source.to_string_lossy().into_owned(),
+                message: f.message.clone(),
+            })
+            .collect(),
+    })
+}

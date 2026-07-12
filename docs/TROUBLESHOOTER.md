@@ -31,8 +31,8 @@ start ─▶ baseline ──problem gone──▶ completed (no_problem)
 abort (any active phase) ▶ restore all ▶ aborted
 ```
 
-* **Baseline.** The session enrolls every current `.package` and
-  `.ts4script` file. Nothing moves yet: the first question is simply "with
+* **Baseline.** The session enrolls every current, *enabled* `.package`
+  and `.ts4script` file — a mod the game ignores can't be the culprit. Nothing moves yet: the first question is simply "with
   everything in place, does the problem happen?" If it doesn't, there is
   nothing to hunt and the session closes without having touched a file.
 * **Rounds.** The suspect pool is split in half (sorted, deterministic).

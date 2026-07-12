@@ -8,7 +8,7 @@
 //! [`SqliteJournal::finish`], which callers must check.
 
 use super::{now_rfc3339, rel_to_db_string, DbError};
-use crate::ops::{BatchOutcome, JournalEvent, JournalSink, QuarantineEntry, SnapshotManifest};
+use crate::ops::{BatchOutcome, JournalEvent, JournalSink, QuarantineEntry, SnapshotManifest, ToggleEntry};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::path::Path;
@@ -74,7 +74,9 @@ impl<'c> SqliteJournal<'c> {
                         *step as i64,
                         action,
                         source.to_string_lossy(),
-                        destination.as_ref().map(|d| d.to_string_lossy().into_owned()),
+                        destination
+                            .as_ref()
+                            .map(|d| d.to_string_lossy().into_owned()),
                         sha256
                     ],
                 )?;
@@ -158,10 +160,7 @@ pub struct OperationView {
     pub backup_id: Option<i64>,
 }
 
-pub fn operation_by_uid(
-    conn: &Connection,
-    uid: &str,
-) -> Result<Option<OperationView>, DbError> {
+pub fn operation_by_uid(conn: &Connection, uid: &str) -> Result<Option<OperationView>, DbError> {
     Ok(conn
         .query_row(
             "SELECT id, operation_uid, operation_type, status, created_at, completed_at,
@@ -246,6 +245,39 @@ pub fn operation_steps(
 /// Persist a completed quarantine batch: link entries to their file rows,
 /// flip file status to `quarantined` (and disable), and record where each
 /// stored copy lives. Returns the new `quarantine_entries` ids.
+/// Sync file rows to a completed toggle batch: `enabled` flips, and the
+/// physical name/path columns follow the rename while `relative_path`
+/// keeps the file's logical identity.
+pub fn record_toggle_outcome(
+    conn: &mut Connection,
+    outcome: &BatchOutcome<ToggleEntry>,
+) -> Result<usize, DbError> {
+    let tx = conn.transaction()?;
+    let mut updated = 0usize;
+    {
+        let mut stmt = tx.prepare(
+            "UPDATE files
+             SET enabled = ?2, current_filename = ?3, absolute_path = ?4
+             WHERE relative_path = ?1",
+        )?;
+        for entry in &outcome.completed {
+            let name = entry
+                .physical_absolute
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            updated += stmt.execute(params![
+                rel_to_db_string(&entry.relative_path),
+                entry.enabled,
+                name,
+                entry.physical_absolute.to_string_lossy(),
+            ])?;
+        }
+    }
+    tx.commit()?;
+    Ok(updated)
+}
+
 pub fn record_quarantine_outcome(
     conn: &mut Connection,
     outcome: &BatchOutcome<QuarantineEntry>,
@@ -261,11 +293,9 @@ pub fn record_quarantine_outcome(
     let now = now_rfc3339();
     let mut ids = Vec::with_capacity(outcome.completed.len());
     {
-        let mut find_file =
-            tx.prepare("SELECT id FROM files WHERE relative_path = ?1")?;
-        let mut flip_file = tx.prepare(
-            "UPDATE files SET status = 'quarantined', enabled = 0 WHERE id = ?1",
-        )?;
+        let mut find_file = tx.prepare("SELECT id FROM files WHERE relative_path = ?1")?;
+        let mut flip_file =
+            tx.prepare("UPDATE files SET status = 'quarantined', enabled = 0 WHERE id = ?1")?;
         let mut insert = tx.prepare(
             "INSERT INTO quarantine_entries (file_id, original_path, quarantine_path,
                 sha256, reason, quarantined_at, status, operation_id)
@@ -273,9 +303,7 @@ pub fn record_quarantine_outcome(
         )?;
         for entry in &outcome.completed {
             let rel_s = rel_to_db_string(&entry.original_relative);
-            let file_id: Option<i64> = find_file
-                .query_row([&rel_s], |r| r.get(0))
-                .optional()?;
+            let file_id: Option<i64> = find_file.query_row([&rel_s], |r| r.get(0)).optional()?;
             if let Some(fid) = file_id {
                 flip_file.execute([fid])?;
             }
@@ -519,9 +547,7 @@ pub fn backup_entries(conn: &Connection, backup_id: i64) -> Result<Vec<BackupEnt
 mod tests {
     use super::*;
     use crate::db::{files, Database};
-    use crate::ops::{
-        create_snapshot, quarantine_files, restore_quarantined, QuarantineRequest,
-    };
+    use crate::ops::{create_snapshot, quarantine_files, restore_quarantined, QuarantineRequest};
     use crate::paths::SafeRoot;
     use crate::scan::{scan, ScanOptions};
     use std::fs;
@@ -645,15 +671,14 @@ mod tests {
         let ids = record_quarantine_outcome(w.db.conn_mut(), &outcome).unwrap();
         assert_eq!(ids.len(), 1);
 
-        let status: String = w
-            .db
-            .conn()
-            .query_row(
-                "SELECT status FROM files WHERE relative_path = 'CAS/junk.package'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
+        let status: String =
+            w.db.conn()
+                .query_row(
+                    "SELECT status FROM files WHERE relative_path = 'CAS/junk.package'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
         assert_eq!(status, "quarantined");
         assert_eq!(list_quarantine(w.db.conn(), false).unwrap().len(), 1);
 
@@ -667,15 +692,14 @@ mod tests {
         let all = list_quarantine(w.db.conn(), true).unwrap();
         assert_eq!(all[0].status, "restored");
         assert!(all[0].restored_at.is_some());
-        let status: String = w
-            .db
-            .conn()
-            .query_row(
-                "SELECT status FROM files WHERE relative_path = 'CAS/junk.package'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
+        let status: String =
+            w.db.conn()
+                .query_row(
+                    "SELECT status FROM files WHERE relative_path = 'CAS/junk.package'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
         assert_eq!(status, "current");
     }
 
@@ -687,7 +711,10 @@ mod tests {
             let r = create_snapshot(
                 &w.mods,
                 &w.backups,
-                &[PathBuf::from("keep.package"), PathBuf::from("CAS/junk.package")],
+                &[
+                    PathBuf::from("keep.package"),
+                    PathBuf::from("CAS/junk.package"),
+                ],
                 "before organization plan",
                 &mut journal,
             )

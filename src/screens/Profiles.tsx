@@ -90,7 +90,7 @@ export function Profiles() {
                   setDraft("")
                 );
             }}
-            placeholder="e.g. Michael"
+            placeholder="e.g. Michael or Mackenzie"
             aria-label="New profile name"
             className="w-full max-w-xs rounded-control border border-border-subtle bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-muted"
           />

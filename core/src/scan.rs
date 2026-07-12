@@ -31,6 +31,24 @@ pub enum FileKind {
     Unsupported,
 }
 
+/// Marker appended to a mod's file name to disable it in place: the game
+/// only loads `.package` / `.ts4script`, so `Foo.package.off` is invisible
+/// to it while never leaving its folder. The scanner treats such files as
+/// their logical selves with `enabled = false`.
+pub const DISABLED_SUFFIX: &str = ".off";
+
+/// If `file_name` is a disabled mod (`X.package.off` / `X.ts4script.off`),
+/// return the logical name and its kind. Anything else — including
+/// `notes.txt.off` — is not a disabled mod.
+pub fn split_disabled(file_name: &str) -> Option<(&str, FileKind)> {
+    let logical = file_name.strip_suffix(DISABLED_SUFFIX)?;
+    let ext = Path::new(logical).extension()?.to_str()?;
+    match classify(Some(ext)) {
+        k @ (FileKind::Package | FileKind::Ts4Script) => Some((logical, k)),
+        _ => None,
+    }
+}
+
 pub fn classify(extension: Option<&str>) -> FileKind {
     let ext = match extension {
         Some(e) => e.to_ascii_lowercase(),
@@ -68,6 +86,10 @@ pub struct ScannedFile {
     pub deep_script: bool,
     /// Filled by [`hash_files`]; `None` until hashed.
     pub sha256: Option<String>,
+    /// `false` when the on-disk name carries [`DISABLED_SUFFIX`]. For such
+    /// files `relative_path` and `extension` describe the *logical* file
+    /// while `file_name` / `absolute_path` stay physical.
+    pub enabled: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -201,22 +223,38 @@ pub fn scan(
             }
         };
 
-        let relative_path = path
+        let physical_relative = path
             .strip_prefix(root.path())
             .map(Path::to_path_buf)
             .unwrap_or_else(|_| path.clone());
-        let extension = path
-            .extension()
-            .map(|e| e.to_string_lossy().to_ascii_lowercase());
-        let kind = classify(extension.as_deref());
+        let physical_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        // Disabled mods are recorded under their logical identity.
+        let (relative_path, extension, kind, enabled) =
+            match split_disabled(&physical_name) {
+                Some((logical_name, kind)) => (
+                    physical_relative.with_file_name(logical_name),
+                    Path::new(logical_name)
+                        .extension()
+                        .map(|e| e.to_string_lossy().to_ascii_lowercase()),
+                    kind,
+                    false,
+                ),
+                None => {
+                    let extension = path
+                        .extension()
+                        .map(|e| e.to_string_lossy().to_ascii_lowercase());
+                    let kind = classify(extension.as_deref());
+                    (physical_relative, extension, kind, true)
+                }
+            };
         let size_bytes = meta.len();
         let depth = entry.depth().saturating_sub(1);
 
         let scanned = ScannedFile {
-            file_name: path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default(),
+            file_name: physical_name,
             modified_at: meta.modified().ok().map(DateTime::<Utc>::from),
             created_at: meta.created().ok().map(DateTime::<Utc>::from),
             zero_byte: size_bytes == 0,
@@ -228,6 +266,7 @@ pub fn scan(
             size_bytes,
             depth,
             sha256: None,
+            enabled,
         };
 
         files_seen += 1;
@@ -423,7 +462,10 @@ mod tests {
         });
         assert!(report.cancelled);
         assert!(report.files.len() >= 2);
-        assert!(report.files.len() < 13, "cancellation should stop the walk early");
+        assert!(
+            report.files.len() < 13,
+            "cancellation should stop the walk early"
+        );
     }
 
     #[cfg(unix)]
@@ -474,7 +516,10 @@ mod tests {
         // Restore permissions so the tempdir can be cleaned up.
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
 
-        assert!(!report.errors.is_empty(), "permission failure must be recorded");
+        assert!(
+            !report.errors.is_empty(),
+            "permission failure must be recorded"
+        );
         assert!(
             report.files.iter().any(|f| f.file_name == "top.package"),
             "walk must continue past the failure"

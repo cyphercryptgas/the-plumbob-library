@@ -25,6 +25,7 @@ import type {
   TroubleshootReconcileReport,
   TroubleshootSession,
   ProfileView,
+  ToggleOutcomeDto,
 } from "./types";
 
 // App identity & settings -----------------------------------------------
@@ -157,3 +158,6 @@ export const setActiveProfile = (profileId: number) =>
 
 export const deleteProfile = (profileId: number) =>
   call<void>("delete_profile", { profileId });
+
+export const setFilesEnabled = (fileIds: number[], enabled: boolean) =>
+  call<ToggleOutcomeDto>("set_files_enabled", { fileIds, enabled });

@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.0 — Profiles, Part Two: The Toggle
+
+* **Enable / disable in place.** A disabled mod becomes `Name.package.off`
+  right where it lives — the game stops seeing it, the file never moves,
+  and re-enabling renames it back. Every toggle is a hash-verified,
+  journaled rename that refuses if the target name is occupied or the
+  file changed since it was indexed. Library rows get a Disable/Enable
+  action, bulk toggles ride the existing selection, and a Disabled filter
+  and Dashboard pill keep the count honest.
+* **The scanner understands.** `X.package.off` scans as its logical self —
+  same record, `enabled = 0` — so disabling never shows up as one missing
+  file plus one unsupported stranger. Scans also *sync* renames done by
+  hand in Explorer, in both directions; a file counts as missing only
+  when neither form exists; and if both forms exist, the enabled one owns
+  the record.
+* **Guard rails.** Toggling is blocked while a scan or a troubleshooting
+  hunt is running (and vice versa), and disabled mods are excluded from
+  hunt enrollment — a file the game ignores can't be the culprit.
+* Friendlier operation titles in Recent Activity, and the profile
+  placeholder now suggests Michael *or Mackenzie*.
+
+
 ## 0.4.0 — Profiles, Part One
 
 * **Profiles.** Name who's holding the save. The active profile's name is

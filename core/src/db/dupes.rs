@@ -4,8 +4,8 @@
 
 use super::{parse_rfc3339, DbError};
 use crate::duplicates::{DuplicateGroup, FileFacts};
-use serde::Serialize;
 use rusqlite::{params, Connection};
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -91,9 +91,8 @@ pub fn replace_exact_groups(
                 reclaimable_bytes)
              VALUES ('exact', 1.0, 'open', ?1, ?2, ?3, ?4, ?5, ?6)",
         )?;
-        let mut insert_member = tx.prepare(
-            "INSERT INTO duplicate_group_files (group_id, file_id) VALUES (?1, ?2)",
-        )?;
+        let mut insert_member =
+            tx.prepare("INSERT INTO duplicate_group_files (group_id, file_id) VALUES (?1, ?2)")?;
         let now = super::now_rfc3339();
         for g in groups {
             if dismissed.contains(&g.sha256) {
@@ -142,11 +141,7 @@ pub struct DuplicateGroupView {
 
 /// Update a group's lifecycle status (`open` → `resolved` / `dismissed`).
 /// Resolved and dismissed groups survive rescans; see [`replace_exact_groups`].
-pub fn set_group_status(
-    conn: &Connection,
-    group_id: i64,
-    status: &str,
-) -> Result<(), DbError> {
+pub fn set_group_status(conn: &Connection, group_id: i64, status: &str) -> Result<(), DbError> {
     conn.execute(
         "UPDATE duplicate_groups SET status = ?2 WHERE id = ?1",
         params![group_id, status],
@@ -214,7 +209,6 @@ pub fn list_open_exact_groups(conn: &Connection) -> Result<Vec<DuplicateGroupVie
     }
     Ok(groups)
 }
-
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -305,6 +299,7 @@ mod tests {
             zero_byte: false,
             deep_script: false,
             sha256: None,
+            enabled: true,
         };
         let files_list = vec![
             mk("clean.package", 100),
@@ -352,11 +347,7 @@ mod tests {
         assert_eq!(views.len(), 1);
         assert_eq!(views[0].members.len(), 2);
         assert_eq!(views[0].reclaimable_bytes, 100);
-        let recommended: Vec<_> = views[0]
-            .members
-            .iter()
-            .filter(|m| m.recommended)
-            .collect();
+        let recommended: Vec<_> = views[0].members.iter().filter(|m| m.recommended).collect();
         assert_eq!(recommended.len(), 1);
         assert_eq!(recommended[0].relative_path, "clean.package");
     }

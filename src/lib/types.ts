@@ -47,6 +47,7 @@ export interface LibraryCounts {
   packages: number;
   scripts: number;
   quarantined: number;
+  disabled: number;
 }
 
 export interface FileRow {
@@ -65,6 +66,7 @@ export interface FileRow {
   modifiedAtFs: string | null;
   modId: number | null;
   parseStatus: string | null;
+  enabled: boolean;
 }
 
 export interface DuplicateMemberView {
@@ -191,6 +193,7 @@ export type LibraryFilter =
   | "deep-scripts"
   | "missing"
   | "quarantined"
+  | "disabled"
   | "unreadable";
 
 export interface ConflictMember {
@@ -265,4 +268,10 @@ export interface ProfileView {
   createdAt: string;
   updatedAt: string;
   isActive: boolean;
+}
+
+export interface ToggleOutcomeDto {
+  completed: number;
+  skipped: number;
+  failed: { path: string; message: string }[];
 }

@@ -53,6 +53,7 @@ pub fn enrollable_files(conn: &Connection) -> Result<Vec<(i64, String, Option<St
         "SELECT id, relative_path, sha256 FROM files
          WHERE missing = 0
            AND status = 'current'
+           AND enabled = 1
            AND file_type IN ('package', 'ts4script')
          ORDER BY relative_path COLLATE NOCASE",
     )?;

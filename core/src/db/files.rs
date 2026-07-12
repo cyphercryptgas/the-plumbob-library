@@ -51,6 +51,7 @@ struct ExistingRow {
     modified: Option<String>,
     missing: bool,
     status: String,
+    enabled: bool,
 }
 
 /// Apply a scan report inside a single transaction.
@@ -62,9 +63,8 @@ pub fn reconcile_scan(
 ) -> Result<ReconcileSummary, DbError> {
     let tx = conn.transaction()?;
     let now = now_rfc3339();
-    let started = (chrono::Utc::now()
-        - chrono::Duration::milliseconds(report.duration_ms as i64))
-    .to_rfc3339();
+    let started = (chrono::Utc::now() - chrono::Duration::milliseconds(report.duration_ms as i64))
+        .to_rfc3339();
 
     tx.execute(
         "INSERT INTO scans (started_at, completed_at, scan_type, files_seen, bytes_seen,
@@ -83,9 +83,8 @@ pub fn reconcile_scan(
     let scan_id = tx.last_insert_rowid();
 
     {
-        let mut insert_err = tx.prepare(
-            "INSERT INTO scan_errors (scan_id, path, message) VALUES (?1, ?2, ?3)",
-        )?;
+        let mut insert_err =
+            tx.prepare("INSERT INTO scan_errors (scan_id, path, message) VALUES (?1, ?2, ?3)")?;
         for e in &report.errors {
             insert_err.execute(params![scan_id, e.path.to_string_lossy(), e.message])?;
         }
@@ -95,7 +94,8 @@ pub fn reconcile_scan(
     let mut existing: HashMap<String, ExistingRow> = HashMap::new();
     {
         let mut stmt = tx.prepare(
-            "SELECT id, relative_path, size_bytes, modified_at_fs, missing, status
+            "SELECT id, relative_path, size_bytes, modified_at_fs, missing, status,
+                    enabled
              FROM files",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -106,6 +106,7 @@ pub fn reconcile_scan(
                 modified: r.get(3)?,
                 missing: r.get::<_, i64>(4)? != 0,
                 status: r.get(5)?,
+                enabled: r.get::<_, i64>(6)? != 0,
             })
         })?;
         for row in rows {
@@ -124,14 +125,14 @@ pub fn reconcile_scan(
                 relative_path, extension, file_type, sha256, size_bytes, created_at_fs,
                 modified_at_fs, first_seen_at, last_seen_at, last_scan_id, enabled,
                 missing, depth, zero_byte, deep_script, status)
-             VALUES (?1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?11, 1, 0, ?12,
+             VALUES (?1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?11, ?15, 0, ?12,
                 ?13, ?14, 'current')",
         )?;
         let mut update_changed = tx.prepare(
             "UPDATE files SET current_filename = ?2, absolute_path = ?3, extension = ?4,
                 file_type = ?5, sha256 = ?6, size_bytes = ?7, created_at_fs = ?8,
                 modified_at_fs = ?9, last_seen_at = ?10, last_scan_id = ?11,
-                missing = 0, depth = ?12, zero_byte = ?13, deep_script = ?14,
+                missing = 0, enabled = ?15, depth = ?12, zero_byte = ?13, deep_script = ?14,
                 status = CASE WHEN status = 'missing' THEN 'current' ELSE status END
              WHERE id = ?1",
         )?;
@@ -142,7 +143,25 @@ pub fn reconcile_scan(
              WHERE id = ?1",
         )?;
 
+        // When both `X.package` and `X.package.off` exist on disk, the
+        // enabled form owns the row; the disabled twin is ignored this scan
+        // (still visible on disk, resolvable by the user).
+        let mut chosen: HashMap<String, &crate::scan::ScannedFile> =
+            HashMap::with_capacity(report.files.len());
         for f in &report.files {
+            let key = rel_to_db_string(&f.relative_path).to_lowercase();
+            match chosen.entry(key) {
+                std::collections::hash_map::Entry::Vacant(v) => {
+                    v.insert(f);
+                }
+                std::collections::hash_map::Entry::Occupied(mut o) => {
+                    if f.enabled && !o.get().enabled {
+                        o.insert(f);
+                    }
+                }
+            }
+        }
+        for f in chosen.values().copied() {
             let rel_s = rel_to_db_string(&f.relative_path);
             let key = rel_s.to_lowercase();
             seen.insert(key.clone());
@@ -165,6 +184,7 @@ pub fn reconcile_scan(
                         f.depth as i64,
                         f.zero_byte,
                         f.deep_script,
+                        f.enabled,
                     ])?;
                     let id = tx.last_insert_rowid();
                     summary.new_files += 1;
@@ -176,8 +196,9 @@ pub fn reconcile_scan(
                     if row.missing {
                         summary.reappeared_files += 1;
                     }
-                    let changed =
-                        row.size != f.size_bytes as i64 || row.modified != mtime;
+                    let changed = row.size != f.size_bytes as i64
+                        || row.modified != mtime
+                        || row.enabled != f.enabled;
                     if changed {
                         // Stale hashes are cleared unless the scanner already
                         // re-hashed this file in the same pass.
@@ -196,6 +217,7 @@ pub fn reconcile_scan(
                             f.depth as i64,
                             f.zero_byte,
                             f.deep_script,
+                            f.enabled,
                         ])?;
                         summary.changed_files += 1;
                         if f.sha256.is_none() {
@@ -218,8 +240,8 @@ pub fn reconcile_scan(
         // seen by this scan. A cancelled scan skips it entirely: files the
         // walker never reached are unvisited, not gone.
         if !report.cancelled {
-            let mut mark_missing = tx
-                .prepare("UPDATE files SET missing = 1, status = 'missing' WHERE id = ?1")?;
+            let mut mark_missing =
+                tx.prepare("UPDATE files SET missing = 1, status = 'missing' WHERE id = ?1")?;
             for (key, row) in &existing {
                 if seen.contains(key) || row.missing || row.status == "quarantined" {
                     continue;
@@ -266,6 +288,7 @@ pub struct LibraryCounts {
     pub packages: i64,
     pub scripts: i64,
     pub quarantined: i64,
+    pub disabled: i64,
 }
 
 /// Dashboard aggregates in a single indexed pass.
@@ -280,7 +303,8 @@ pub fn library_counts(conn: &Connection) -> Result<LibraryCounts, DbError> {
                 COALESCE(SUM(deep_script), 0),
                 COALESCE(SUM(CASE WHEN file_type = 'package' THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN file_type = 'ts4script' THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN status = 'quarantined' THEN 1 ELSE 0 END), 0)
+                COALESCE(SUM(CASE WHEN status = 'quarantined' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN enabled = 0 AND status = 'current' THEN 1 ELSE 0 END), 0)
          FROM files",
         [],
         |r| {
@@ -295,6 +319,7 @@ pub fn library_counts(conn: &Connection) -> Result<LibraryCounts, DbError> {
                 packages: r.get(7)?,
                 scripts: r.get(8)?,
                 quarantined: r.get(9)?,
+                disabled: r.get(10)?,
             })
         },
     )?)
@@ -318,11 +343,12 @@ pub struct FileRow {
     pub modified_at_fs: Option<String>,
     pub mod_id: Option<i64>,
     pub parse_status: Option<String>,
+    pub enabled: bool,
 }
 
 const FILE_ROW_COLUMNS: &str = "id, relative_path, absolute_path, current_filename, file_type,
     size_bytes, sha256, status, missing, zero_byte, deep_script, depth, modified_at_fs,
-    mod_id, parse_status";
+    mod_id, parse_status, enabled";
 
 fn map_file_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<FileRow> {
     Ok(FileRow {
@@ -341,6 +367,7 @@ fn map_file_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<FileRow> {
         modified_at_fs: r.get(12)?,
         mod_id: r.get(13)?,
         parse_status: r.get(14)?,
+        enabled: r.get::<_, i64>(15)? != 0,
     })
 }
 
@@ -356,6 +383,7 @@ fn filter_clause(filter: Option<&str>) -> Result<&'static str, DbError> {
         "deep-scripts" => "deep_script = 1",
         "missing" => "missing = 1",
         "quarantined" => "status = 'quarantined'",
+        "disabled" => "enabled = 0 AND status = 'current'",
         "unreadable" => "parse_status IS NOT NULL AND parse_status != 'ok'",
         other => {
             return Err(DbError::Sqlite(rusqlite::Error::InvalidParameterName(
@@ -426,10 +454,7 @@ pub fn files_by_ids(conn: &Connection, ids: &[i64]) -> Result<Vec<FileRow>, DbEr
 }
 
 /// Look up a file id by its root-relative path (NOCASE, normalized `/`).
-pub fn file_id_by_relative_path(
-    conn: &Connection,
-    rel: &Path,
-) -> Result<Option<i64>, DbError> {
+pub fn file_id_by_relative_path(conn: &Connection, rel: &Path) -> Result<Option<i64>, DbError> {
     let rel_s = rel_to_db_string(rel);
     let mut stmt = conn.prepare("SELECT id FROM files WHERE relative_path = ?1")?;
     let mut rows = stmt.query_map(params![rel_s], |r| r.get::<_, i64>(0))?;
@@ -467,6 +492,7 @@ mod tests {
             zero_byte: size == 0,
             deep_script: false,
             sha256: None,
+            enabled: true,
         }
     }
 
@@ -774,5 +800,200 @@ mod tests {
             .unwrap();
         assert_eq!(files, 0, "partial scan writes must roll back");
         assert_eq!(scans, 0, "the scan row itself must roll back");
+    }
+}
+
+#[cfg(test)]
+mod disabled_mod_tests {
+    use super::*;
+    use crate::db::Database;
+    use crate::db::ops::record_toggle_outcome;
+    use crate::scan::{scan, split_disabled, FileKind, ScanOptions};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::AtomicBool;
+
+    fn scan_into(db: &mut Database, root: &crate::paths::SafeRoot) -> ReconcileSummary {
+        let report = scan(root, &ScanOptions::default(), &AtomicBool::new(false), |_| {});
+        reconcile_scan(db.conn_mut(), &report, "test", &[]).unwrap()
+    }
+
+    fn row(db: &Database, rel: &str) -> FileRow {
+        let id: i64 = db
+            .conn()
+            .query_row(
+                "SELECT id FROM files WHERE relative_path = ?1",
+                [rel],
+                |r| r.get(0),
+            )
+            .unwrap();
+        files_by_ids(db.conn(), &[id]).unwrap().remove(0)
+    }
+
+    #[test]
+    fn split_disabled_recognizes_only_mods() {
+        assert_eq!(
+            split_disabled("Foo.package.off"),
+            Some(("Foo.package", FileKind::Package))
+        );
+        assert_eq!(
+            split_disabled("mc.ts4script.off"),
+            Some(("mc.ts4script", FileKind::Ts4Script))
+        );
+        assert_eq!(split_disabled("notes.txt.off"), None);
+        assert_eq!(split_disabled("Foo.package"), None);
+        assert_eq!(split_disabled(".off"), None);
+    }
+
+    #[test]
+    fn a_pre_disabled_file_scans_under_its_logical_identity() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("cc")).unwrap();
+        fs::write(tmp.path().join("cc/Hair.package.off"), b"payload").unwrap();
+        let root = crate::paths::SafeRoot::new(tmp.path()).unwrap();
+        let mut db = Database::open_in_memory().unwrap();
+        scan_into(&mut db, &root);
+        let r = row(&db, "cc/Hair.package");
+        assert!(!r.enabled);
+        assert_eq!(r.file_type, "package");
+        assert_eq!(r.current_filename, "Hair.package.off");
+        assert!(r.absolute_path.ends_with("Hair.package.off"));
+        assert_eq!(library_counts(db.conn()).unwrap().disabled, 1);
+    }
+
+    #[test]
+    fn scans_sync_manual_renames_both_directions() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("A.package"), b"payload-a").unwrap();
+        let root = crate::paths::SafeRoot::new(tmp.path()).unwrap();
+        let mut db = Database::open_in_memory().unwrap();
+        scan_into(&mut db, &root);
+        assert!(row(&db, "A.package").enabled);
+
+        fs::rename(tmp.path().join("A.package"), tmp.path().join("A.package.off")).unwrap();
+        let s = scan_into(&mut db, &root);
+        assert_eq!(s.missing_files, 0, "a manual disable is not a disappearance");
+        let r = row(&db, "A.package");
+        assert!(!r.enabled);
+        assert_eq!(r.current_filename, "A.package.off");
+
+        fs::rename(tmp.path().join("A.package.off"), tmp.path().join("A.package")).unwrap();
+        scan_into(&mut db, &root);
+        assert!(row(&db, "A.package").enabled);
+    }
+
+    #[test]
+    fn missing_means_neither_physical_form_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("B.package"), b"payload-b").unwrap();
+        let root = crate::paths::SafeRoot::new(tmp.path()).unwrap();
+        let mut db = Database::open_in_memory().unwrap();
+        scan_into(&mut db, &root);
+        fs::remove_file(tmp.path().join("B.package")).unwrap();
+        let s = scan_into(&mut db, &root);
+        assert_eq!(s.missing_files, 1);
+        assert!(row(&db, "B.package").missing);
+    }
+
+    #[test]
+    fn when_both_forms_exist_the_enabled_one_owns_the_row() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("C.package"), b"enabled-form").unwrap();
+        fs::write(tmp.path().join("C.package.off"), b"disabled-twin").unwrap();
+        let root = crate::paths::SafeRoot::new(tmp.path()).unwrap();
+        let mut db = Database::open_in_memory().unwrap();
+        scan_into(&mut db, &root);
+        let r = row(&db, "C.package");
+        assert!(r.enabled);
+        assert_eq!(r.current_filename, "C.package");
+        let total: i64 = db
+            .conn()
+            .query_row("SELECT COUNT(*) FROM files", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(total, 1, "the twin never becomes a second row");
+    }
+
+    #[test]
+    fn toggle_roundtrip_is_verified_and_recorded() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("D.package"), b"precious-bytes").unwrap();
+        let original = crate::hashing::sha256_file(&tmp.path().join("D.package")).unwrap();
+        let root = crate::paths::SafeRoot::new(tmp.path()).unwrap();
+        let mut db = Database::open_in_memory().unwrap();
+        scan_into(&mut db, &root);
+        let sha = row(&db, "D.package").sha256;
+
+        let mut j = crate::ops::VecJournal::default();
+        let req = crate::ops::ToggleRequest {
+            relative_path: PathBuf::from("D.package"),
+            expected_sha256: sha.clone(),
+        };
+        let out = crate::ops::set_files_enabled(&root, &[req.clone()], false, true, &mut j);
+        assert_eq!(out.completed.len(), 1);
+        assert!(tmp.path().join("D.package.off").exists());
+        assert!(!tmp.path().join("D.package").exists());
+        record_toggle_outcome(db.conn_mut(), &out).unwrap();
+        let r = row(&db, "D.package");
+        assert!(!r.enabled);
+        assert_eq!(r.current_filename, "D.package.off");
+
+        let back = crate::ops::set_files_enabled(&root, &[req], true, true, &mut j);
+        assert_eq!(back.completed.len(), 1);
+        record_toggle_outcome(db.conn_mut(), &back).unwrap();
+        let r = row(&db, "D.package");
+        assert!(r.enabled);
+        assert_eq!(
+            crate::hashing::sha256_file(&tmp.path().join("D.package")).unwrap(),
+            original,
+            "the bytes come home identical"
+        );
+    }
+
+    #[test]
+    fn toggling_refuses_when_the_target_name_is_occupied() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("E.package"), b"real").unwrap();
+        fs::write(tmp.path().join("E.package.off"), b"stray").unwrap();
+        let root = crate::paths::SafeRoot::new(tmp.path()).unwrap();
+        let mut j = crate::ops::VecJournal::default();
+        let out = crate::ops::set_files_enabled(
+            &root,
+            &[crate::ops::ToggleRequest {
+                relative_path: PathBuf::from("E.package"),
+                expected_sha256: None,
+            }],
+            false,
+            true,
+            &mut j,
+        );
+        assert!(out.completed.is_empty());
+        assert_eq!(out.failed.len(), 1);
+        assert_eq!(
+            fs::read(tmp.path().join("E.package")).unwrap(),
+            b"real",
+            "nothing moved"
+        );
+    }
+
+    #[test]
+    fn a_stale_hash_refuses_to_toggle() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("F.package"), b"before").unwrap();
+        let stale = crate::hashing::sha256_file(&tmp.path().join("F.package")).unwrap();
+        let root = crate::paths::SafeRoot::new(tmp.path()).unwrap();
+        fs::write(tmp.path().join("F.package"), b"tampered!").unwrap();
+        let mut j = crate::ops::VecJournal::default();
+        let out = crate::ops::set_files_enabled(
+            &root,
+            &[crate::ops::ToggleRequest {
+                relative_path: PathBuf::from("F.package"),
+                expected_sha256: Some(stale),
+            }],
+            false,
+            true,
+            &mut j,
+        );
+        assert_eq!(out.failed.len(), 1);
+        assert!(tmp.path().join("F.package").exists(), "refused, not moved");
     }
 }
