@@ -94,7 +94,7 @@ static OP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::
 /// name quarantine/backup folders and correlate journal rows on one machine.
 /// They never need global uniqueness, and skipping a randomness dependency
 /// keeps the safety core's dependency graph small and auditable.
-fn new_operation_id() -> String {
+pub(crate) fn new_operation_id() -> String {
     let now = chrono::Utc::now();
     let n = OP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     format!(
@@ -425,10 +425,7 @@ pub fn create_snapshot(
     journal: &mut dyn JournalSink,
 ) -> Result<(PathBuf, SnapshotManifest), OpError> {
     let operation_id = new_operation_id();
-    let snapshot_dir = backup_root
-        .path()
-        .join(today_utc())
-        .join(&operation_id);
+    let snapshot_dir = backup_root.path().join(today_utc()).join(&operation_id);
     backup_root.contain(&snapshot_dir)?;
 
     journal.record(JournalEvent::OperationStarted {
@@ -761,7 +758,10 @@ mod tests {
         let err = verified_move(&src, &dst, Some(&stale)).unwrap_err();
         assert!(matches!(err, OpError::HashMismatch { .. }));
         assert!(src.exists(), "source must be restored after rollback");
-        assert!(!dst.exists(), "destination must not retain unverified bytes");
+        assert!(
+            !dst.exists(),
+            "destination must not retain unverified bytes"
+        );
     }
 
     #[test]
@@ -882,7 +882,10 @@ mod tests {
         fs::write(fx.mods.path().join("top.package"), b"newer file").unwrap();
         let err = restore_quarantined(&fx.mods, entry, &mut journal).unwrap_err();
         assert!(matches!(err, OpError::DestinationOccupied(_)));
-        assert!(entry.stored_absolute.exists(), "quarantined copy must survive");
+        assert!(
+            entry.stored_absolute.exists(),
+            "quarantined copy must survive"
+        );
         assert_eq!(
             fs::read(fx.mods.path().join("top.package")).unwrap(),
             b"newer file"
@@ -981,9 +984,8 @@ mod tests {
             &mut journal,
         )
         .unwrap();
-        let err =
-            restore_from_snapshot(&fx.mods, &dir, &manifest.entries[0], false, &mut journal)
-                .unwrap_err();
+        let err = restore_from_snapshot(&fx.mods, &dir, &manifest.entries[0], false, &mut journal)
+            .unwrap_err();
         assert!(matches!(err, OpError::DestinationOccupied(_)));
     }
 
@@ -1002,9 +1004,8 @@ mod tests {
         // Bit-rot simulation: damage the stored copy.
         fs::write(dir.join("top.package"), b"corrupted!!").unwrap();
         fs::write(fx.mods.path().join("top.package"), b"live edit").unwrap();
-        let err =
-            restore_from_snapshot(&fx.mods, &dir, &manifest.entries[0], true, &mut journal)
-                .unwrap_err();
+        let err = restore_from_snapshot(&fx.mods, &dir, &manifest.entries[0], true, &mut journal)
+            .unwrap_err();
         assert!(matches!(err, OpError::HashMismatch { .. }));
         assert_eq!(
             fs::read(fx.mods.path().join("top.package")).unwrap(),
@@ -1025,7 +1026,10 @@ mod tests {
             &mut journal,
         );
         assert_eq!(journal.0.len(), 3);
-        assert!(matches!(journal.0[0], JournalEvent::OperationStarted { .. }));
+        assert!(matches!(
+            journal.0[0],
+            JournalEvent::OperationStarted { .. }
+        ));
         assert!(matches!(journal.0[1], JournalEvent::StepSucceeded { .. }));
         match &journal.0[2] {
             JournalEvent::OperationFinished {

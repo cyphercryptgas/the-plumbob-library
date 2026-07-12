@@ -25,3 +25,4 @@ pub mod ops;
 pub mod paths;
 pub mod product;
 pub mod scan;
+pub mod troubleshoot;

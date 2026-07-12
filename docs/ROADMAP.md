@@ -27,7 +27,10 @@ never renders fake versions. Status source of truth: `FEATURE_STATUS.md`.
 
 ## Phase 4 — workflow tools
 
-* 50/50 assistant: guided binary-search sessions over the library using the
+* 50/50 assistant (**core engine shipped** — persistent state machine,
+  hash-verified arrangements, reconciler; see `docs/TROUBLESHOOTER.md`;
+  shell commands and the guided wizard UI are next): guided binary-search
+  sessions over the library using the
   existing quarantine engine (snapshot-first, fully reversible by design).
 * Profiles: named enable/disable sets built on `enabled` + collections.
 

@@ -17,6 +17,7 @@ pub mod files;
 pub mod ops;
 pub mod packages;
 pub mod settings;
+pub mod troubleshoot;
 
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
@@ -53,6 +54,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
     (
         "0003_package_resources",
         include_str!("../../migrations/0003_package_resources.sql"),
+    ),
+    (
+        "0004_troubleshoot",
+        include_str!("../../migrations/0004_troubleshoot.sql"),
     ),
 ];
 
@@ -174,7 +179,10 @@ mod tests {
     #[test]
     fn fresh_migration_reaches_latest_version_with_all_tables() {
         let db = Database::open_in_memory().unwrap();
-        assert_eq!(db.schema_version().unwrap(), Database::latest_schema_version());
+        assert_eq!(
+            db.schema_version().unwrap(),
+            Database::latest_schema_version()
+        );
         let count: i64 = db
             .conn()
             .query_row(
@@ -196,7 +204,10 @@ mod tests {
         let mut db = Database::open_in_memory().unwrap();
         db.migrate_to(MIGRATIONS.len()).unwrap();
         db.migrate_to(MIGRATIONS.len()).unwrap();
-        assert_eq!(db.schema_version().unwrap(), Database::latest_schema_version());
+        assert_eq!(
+            db.schema_version().unwrap(),
+            Database::latest_schema_version()
+        );
     }
 
     #[test]
@@ -207,7 +218,10 @@ mod tests {
         assert_eq!(db.schema_version().unwrap(), 1);
         // Old install upgrading later:
         db.migrate_to(MIGRATIONS.len()).unwrap();
-        assert_eq!(db.schema_version().unwrap(), Database::latest_schema_version());
+        assert_eq!(
+            db.schema_version().unwrap(),
+            Database::latest_schema_version()
+        );
         let cats: i64 = db
             .conn()
             .query_row("SELECT COUNT(*) FROM categories", [], |r| r.get(0))
@@ -268,7 +282,10 @@ mod tests {
                 'package', '2026', '2026')",
             [],
         );
-        assert!(dup.is_err(), "NOCASE uniqueness must match Windows semantics");
+        assert!(
+            dup.is_err(),
+            "NOCASE uniqueness must match Windows semantics"
+        );
     }
 
     #[test]
@@ -334,8 +351,7 @@ mod tests {
 
         // Scan → reconcile → hash
         let mut report = scan(&mods, &ScanOptions::default(), &cancel, |_| {});
-        let summary =
-            files::reconcile_scan(db.conn_mut(), &report, "initial", &[]).unwrap();
+        let summary = files::reconcile_scan(db.conn_mut(), &report, "initial", &[]).unwrap();
         assert_eq!(summary.new_files, 3);
         assert_eq!(summary.needs_hash.len(), 3);
 
@@ -364,11 +380,7 @@ mod tests {
         assert_eq!(views.len(), 1);
         assert_eq!(views[0].members.len(), 2);
         let keep = views[0].recommended_file_id.unwrap();
-        let victim = views[0]
-            .members
-            .iter()
-            .find(|m| m.file_id != keep)
-            .unwrap();
+        let victim = views[0].members.iter().find(|m| m.file_id != keep).unwrap();
         assert!(victim.relative_path.contains("keeper (1)"));
 
         // Quarantine the redundant copy, journaled straight into SQLite.
@@ -403,8 +415,7 @@ mod tests {
         // Rescan: quarantined file must NOT be flipped to missing; the two
         // survivors are unchanged.
         let report2 = scan(&mods, &ScanOptions::default(), &cancel, |_| {});
-        let summary2 =
-            files::reconcile_scan(db.conn_mut(), &report2, "incremental", &[]).unwrap();
+        let summary2 = files::reconcile_scan(db.conn_mut(), &report2, "incremental", &[]).unwrap();
         assert_eq!(summary2.new_files, 0);
         assert_eq!(summary2.unchanged_files, 2);
         assert_eq!(summary2.missing_files, 0);
@@ -412,8 +423,7 @@ mod tests {
         // Real external deletion → missing on the next scan.
         fs::remove_file(mods_dir.path().join("unique.package")).unwrap();
         let report3 = scan(&mods, &ScanOptions::default(), &cancel, |_| {});
-        let summary3 =
-            files::reconcile_scan(db.conn_mut(), &report3, "incremental", &[]).unwrap();
+        let summary3 = files::reconcile_scan(db.conn_mut(), &report3, "incremental", &[]).unwrap();
         assert_eq!(summary3.missing_files, 1);
         let counts = files::library_counts(db.conn()).unwrap();
         assert_eq!(counts.missing, 1);
