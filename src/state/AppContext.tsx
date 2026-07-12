@@ -23,6 +23,7 @@ import type {
   ScanOutcome,
   ScanProgressEvent,
   TroubleshootSession,
+  ProfileView,
 } from "../lib/types";
 
 export interface ScanState {
@@ -57,6 +58,9 @@ interface AppContextValue {
   /** The active 50/50 troubleshooting session, if one exists. */
   troubleshoot: TroubleshootSession | null;
   setTroubleshoot: (s: TroubleshootSession | null) => void;
+  /** The profile whose name the app greets. */
+  activeProfile: ProfileView | null;
+  setActiveProfile: (p: ProfileView | null) => void;
   scan: ScanState;
   error: string | null;
   clearError: () => void;
@@ -100,6 +104,7 @@ export function AppProvider(props: { children: ReactNode }) {
   const [troubleshoot, setTroubleshoot] = useState<TroubleshootSession | null>(
     null
   );
+  const [activeProfile, setActiveProfile] = useState<ProfileView | null>(null);
   const scanRunning = useRef(false);
 
   const reportError = useCallback((e: unknown) => setError(asMessage(e)), []);
@@ -139,14 +144,17 @@ export function AppProvider(props: { children: ReactNode }) {
 
   const refreshAll = useCallback(async () => {
     try {
-      const [nextInfo, nextSettings, nextTroubleshoot] = await Promise.all([
-        api.appInfo(),
-        api.getSettings(),
-        api.troubleshootActive().catch(() => null),
-      ]);
+      const [nextInfo, nextSettings, nextTroubleshoot, nextProfile] =
+        await Promise.all([
+          api.appInfo(),
+          api.getSettings(),
+          api.troubleshootActive().catch(() => null),
+          api.activeProfile().catch(() => null),
+        ]);
       setInfo(nextInfo);
       setSettings(nextSettings);
       setTroubleshoot(nextTroubleshoot);
+      setActiveProfile(nextProfile);
       if (nextSettings.modsFolder) {
         await refreshCounts();
       }
@@ -244,6 +252,8 @@ export function AppProvider(props: { children: ReactNode }) {
       isGameRunning,
       troubleshoot,
       setTroubleshoot,
+      activeProfile,
+      setActiveProfile,
       scan,
       error,
       clearError,
@@ -264,6 +274,7 @@ export function AppProvider(props: { children: ReactNode }) {
       conflicts,
       isGameRunning,
       troubleshoot,
+      activeProfile,
       scan,
       error,
       clearError,

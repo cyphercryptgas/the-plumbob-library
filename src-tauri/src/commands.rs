@@ -452,3 +452,48 @@ pub fn troubleshoot_reconcile(
 ) -> UiResult<plumbob_core::troubleshoot::ReconcileReport> {
     service::troubleshoot_reconcile(&state.db, &state.data_dir, session_id)
 }
+
+// ---------------------------------------------------------------------------
+// Profiles
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn list_profiles(
+    state: State<'_, AppState>,
+) -> UiResult<Vec<plumbob_core::db::profiles::ProfileView>> {
+    service::list_profiles(&state.db)
+}
+
+#[tauri::command]
+pub fn active_profile(
+    state: State<'_, AppState>,
+) -> UiResult<Option<plumbob_core::db::profiles::ProfileView>> {
+    service::active_profile(&state.db)
+}
+
+#[tauri::command]
+pub fn create_profile(
+    state: State<'_, AppState>,
+    name: String,
+) -> UiResult<plumbob_core::db::profiles::ProfileView> {
+    service::create_profile(&state.db, &name)
+}
+
+#[tauri::command]
+pub fn rename_profile(
+    state: State<'_, AppState>,
+    profile_id: i64,
+    name: String,
+) -> UiResult<()> {
+    service::rename_profile(&state.db, profile_id, &name)
+}
+
+#[tauri::command]
+pub fn set_active_profile(state: State<'_, AppState>, profile_id: i64) -> UiResult<()> {
+    service::set_active_profile(&state.db, profile_id)
+}
+
+#[tauri::command]
+pub fn delete_profile(state: State<'_, AppState>, profile_id: i64) -> UiResult<()> {
+    service::delete_profile(&state.db, profile_id)
+}

@@ -16,6 +16,7 @@ pub mod dupes;
 pub mod files;
 pub mod ops;
 pub mod packages;
+pub mod profiles;
 pub mod settings;
 pub mod troubleshoot;
 
@@ -58,6 +59,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
     (
         "0004_troubleshoot",
         include_str!("../../migrations/0004_troubleshoot.sql"),
+    ),
+    (
+        "0005_profiles",
+        include_str!("../../migrations/0005_profiles.sql"),
     ),
 ];
 

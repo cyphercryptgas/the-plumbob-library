@@ -787,3 +787,63 @@ pub fn troubleshoot_reconcile(
     };
     ts::reconcile(guard.conn_mut(), &tsr, session_id).map_err(err_str)
 }
+
+// ---------------------------------------------------------------------------
+// Profiles
+// ---------------------------------------------------------------------------
+
+fn friendly_profile_error(e: plumbob_core::db::DbError) -> String {
+    let msg = e.to_string();
+    if msg.to_lowercase().contains("unique") {
+        "A profile with that name already exists.".to_string()
+    } else {
+        msg
+    }
+}
+
+fn validated_profile_name(name: &str) -> UiResult<String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("A profile needs a name.".to_string());
+    }
+    if trimmed.chars().count() > 40 {
+        return Err("Profile names are capped at 40 characters.".to_string());
+    }
+    Ok(trimmed.to_string())
+}
+
+pub fn list_profiles(dbm: &Mutex<Database>) -> UiResult<Vec<db::profiles::ProfileView>> {
+    let guard = lock_db(dbm)?;
+    db::profiles::list_profiles(guard.conn()).map_err(err_str)
+}
+
+pub fn active_profile(dbm: &Mutex<Database>) -> UiResult<Option<db::profiles::ProfileView>> {
+    let guard = lock_db(dbm)?;
+    db::profiles::active_profile(guard.conn()).map_err(err_str)
+}
+
+pub fn create_profile(
+    dbm: &Mutex<Database>,
+    name: &str,
+) -> UiResult<db::profiles::ProfileView> {
+    let name = validated_profile_name(name)?;
+    let mut guard = lock_db(dbm)?;
+    db::profiles::create_profile(guard.conn_mut(), &name).map_err(friendly_profile_error)
+}
+
+pub fn rename_profile(dbm: &Mutex<Database>, profile_id: i64, name: &str) -> UiResult<()> {
+    let name = validated_profile_name(name)?;
+    let guard = lock_db(dbm)?;
+    db::profiles::rename_profile(guard.conn(), profile_id, &name)
+        .map_err(friendly_profile_error)
+}
+
+pub fn set_active_profile(dbm: &Mutex<Database>, profile_id: i64) -> UiResult<()> {
+    let mut guard = lock_db(dbm)?;
+    db::profiles::set_active_profile(guard.conn_mut(), profile_id).map_err(err_str)
+}
+
+pub fn delete_profile(dbm: &Mutex<Database>, profile_id: i64) -> UiResult<()> {
+    let guard = lock_db(dbm)?;
+    db::profiles::delete_profile(guard.conn(), profile_id).map_err(err_str)
+}

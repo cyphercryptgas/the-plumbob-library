@@ -24,6 +24,7 @@ import type {
   SuspectedDuplicateGroup,
   TroubleshootReconcileReport,
   TroubleshootSession,
+  ProfileView,
 } from "./types";
 
 // App identity & settings -----------------------------------------------
@@ -137,3 +138,22 @@ export const troubleshootAbort = (sessionId: number) =>
 
 export const troubleshootReconcile = (sessionId: number) =>
   call<TroubleshootReconcileReport>("troubleshoot_reconcile", { sessionId });
+
+// --- Profiles ---------------------------------------------------------------
+
+export const listProfiles = () => call<ProfileView[]>("list_profiles");
+
+export const activeProfile = () =>
+  call<ProfileView | null>("active_profile");
+
+export const createProfile = (name: string) =>
+  call<ProfileView>("create_profile", { name });
+
+export const renameProfile = (profileId: number, name: string) =>
+  call<void>("rename_profile", { profileId, name });
+
+export const setActiveProfile = (profileId: number) =>
+  call<void>("set_active_profile", { profileId });
+
+export const deleteProfile = (profileId: number) =>
+  call<void>("delete_profile", { profileId });

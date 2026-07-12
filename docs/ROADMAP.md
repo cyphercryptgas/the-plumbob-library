@@ -32,7 +32,8 @@ never renders fake versions. Status source of truth: `FEATURE_STATUS.md`.
   shell commands and the guided wizard UI are next): guided binary-search
   sessions over the library using the
   existing quarantine engine (snapshot-first, fully reversible by design).
-* Profiles: named enable/disable sets built on `enabled` + collections.
+* Profiles (**identity shipped** — records, activation, the greeting;
+  named enable/disable sets built on `enabled` are next).
 
 ## Phase 5 — advanced
 

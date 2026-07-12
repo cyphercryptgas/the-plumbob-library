@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0 — Profiles, Part One
+
+* **Profiles.** Name who's holding the save. The active profile's name is
+  who the Dashboard greets — the seam reserved since the welcome header
+  shipped, finally filled. Create, rename, activate, and delete from the
+  new Profiles screen; the first profile activates itself; the database
+  itself enforces that only one can be active.
+* Honestly labeled: per-profile enabled/disabled mod sets come next, and
+  the screen says so instead of pretending.
+
+
 ## 0.3.0 — The Troubleshooter Release
 
 The 50/50 assistant, end to end — validated on a live 4,213-file

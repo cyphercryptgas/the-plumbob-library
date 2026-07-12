@@ -1,6 +1,6 @@
 [package]
 name = "plumbob-library"
-version = "0.3.0"
+version = "0.4.0"
 description = "A safer home for your Sims 4 mods and custom content."
 edition = "2021"
 publish = false

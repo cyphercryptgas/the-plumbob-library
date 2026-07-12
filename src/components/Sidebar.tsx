@@ -11,6 +11,7 @@ export type Route =
   | "quarantine"
   | "backups"
   | "activity"
+  | "profiles"
   | "settings";
 
 const NAV: { route: Route; label: string; icon: IconName }[] = [
@@ -22,13 +23,13 @@ const NAV: { route: Route; label: string; icon: IconName }[] = [
   { route: "quarantine", label: "Quarantine", icon: "quarantine" },
   { route: "backups", label: "Backups", icon: "backups" },
   { route: "activity", label: "Activity", icon: "activity" },
+  { route: "profiles", label: "Profiles", icon: "profiles" },
   { route: "settings", label: "Settings", icon: "settings" },
 ];
 
 /** Honest labeling: planned features are visible but clearly not built. */
 const PLANNED: { label: string; icon: IconName }[] = [
   { label: "Patch Center", icon: "calendar" },
-  { label: "Profiles", icon: "profiles" },
 ];
 
 // Deterministic decoration, baked at build time from the approved preview.

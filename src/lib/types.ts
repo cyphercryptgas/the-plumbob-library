@@ -258,3 +258,11 @@ export interface TroubleshootReconcileReport {
   conflicts: string[];
   missing: string[];
 }
+
+export interface ProfileView {
+  id: number;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  isActive: boolean;
+}

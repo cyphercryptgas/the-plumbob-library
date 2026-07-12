@@ -11,6 +11,7 @@ import { Settings } from "./screens/Settings";
 import { Library } from "./screens/Library";
 import { Duplicates } from "./screens/Duplicates";
 import { Troubleshoot } from "./screens/Troubleshoot";
+import { Profiles } from "./screens/Profiles";
 import { Conflicts } from "./screens/Conflicts";
 import { Quarantine } from "./screens/Quarantine";
 import { Backups } from "./screens/Backups";
@@ -22,6 +23,7 @@ const TITLES: Record<Route, string> = {
   duplicates: "Duplicate Center",
   conflicts: "Conflicts",
   troubleshoot: "Troubleshoot",
+  profiles: "Profiles",
   quarantine: "Quarantine",
   backups: "Backups",
   activity: "Activity",
@@ -49,6 +51,8 @@ function Screen(props: {
       return <Duplicates />;
     case "troubleshoot":
       return <Troubleshoot onNavigate={props.onNavigate} />;
+    case "profiles":
+      return <Profiles />;
     case "conflicts":
       return <Conflicts />;
     case "quarantine":
@@ -61,7 +65,8 @@ function Screen(props: {
 }
 
 function Shell() {
-  const { loading, settings, error, clearError, scan, info } = useApp();
+  const { loading, settings, error, clearError, scan, info, activeProfile } =
+    useApp();
   const [route, setRoute] = useState<Route>("dashboard");
   const [searchDraft, setSearchDraft] = useState("");
   const [libSeed, setLibSeed] = useState({ q: "", n: 0 });
@@ -97,8 +102,8 @@ function Shell() {
                 {route === "dashboard" ? (
                   <>
                     <h1 className="font-display text-[40px] font-bold leading-tight text-ink [text-shadow:0_1px_0_#fff]">
-                      {/* Profiles (Planned) will supply the name here. */}
-                      Welcome back{" "}
+                      Welcome back
+                      {activeProfile ? `, ${activeProfile.name}` : ""}{" "}
                       <span
                         aria-hidden="true"
                         className="align-[6px] text-[22px] text-gold [text-shadow:0_0_14px_rgba(201,164,92,0.8)]"
