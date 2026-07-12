@@ -227,3 +227,34 @@ export interface SuspectedDuplicateGroup {
   fileName: string;
   members: SuspectedMember[];
 }
+
+// ---------------------------------------------------------------------------
+// Troubleshooter (the 50/50 assistant)
+// ---------------------------------------------------------------------------
+
+export interface TroubleshootCandidate {
+  fileId: number;
+  relativePath: string;
+}
+
+export interface TroubleshootSession {
+  id: number;
+  status: string;
+  phase: string;
+  round: number;
+  problemNote: string | null;
+  outcome: string | null;
+  createdAt: string;
+  updatedAt: string;
+  total: number;
+  inCount: number;
+  outCount: number;
+  poolSize: number;
+  candidate: TroubleshootCandidate | null;
+}
+
+export interface TroubleshootReconcileReport {
+  healed: number;
+  conflicts: string[];
+  missing: string[];
+}

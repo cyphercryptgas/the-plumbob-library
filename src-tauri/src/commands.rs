@@ -367,3 +367,66 @@ pub fn list_operation_steps(
 pub fn reveal_in_explorer(state: State<'_, AppState>, path: String) -> UiResult<()> {
     service::reveal_in_explorer(&state.db, &state.data_dir, &path)
 }
+
+// ---------------------------------------------------------------------------
+// Troubleshooter (the 50/50 assistant)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn troubleshoot_active(
+    state: State<'_, AppState>,
+) -> UiResult<Option<plumbob_core::troubleshoot::SessionView>> {
+    service::troubleshoot_active(&state.db)
+}
+
+#[tauri::command]
+pub async fn troubleshoot_start(
+    state: State<'_, AppState>,
+    note: Option<String>,
+) -> UiResult<plumbob_core::troubleshoot::SessionView> {
+    let dbm = state.db.clone();
+    let data_dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        service::troubleshoot_start(&dbm, &data_dir, note.as_deref())
+    })
+    .await
+    .map_err(|e| format!("The troubleshoot task failed unexpectedly: {e}"))?
+}
+
+#[tauri::command]
+pub async fn troubleshoot_verdict(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: i64,
+    problem_present: bool,
+) -> UiResult<plumbob_core::troubleshoot::SessionView> {
+    let dbm = state.db.clone();
+    let data_dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        service::troubleshoot_verdict(&app, &dbm, &data_dir, session_id, problem_present)
+    })
+    .await
+    .map_err(|e| format!("The troubleshoot task failed unexpectedly: {e}"))?
+}
+
+#[tauri::command]
+pub async fn troubleshoot_abort(
+    state: State<'_, AppState>,
+    session_id: i64,
+) -> UiResult<plumbob_core::troubleshoot::SessionView> {
+    let dbm = state.db.clone();
+    let data_dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        service::troubleshoot_abort(&dbm, &data_dir, session_id)
+    })
+    .await
+    .map_err(|e| format!("The troubleshoot task failed unexpectedly: {e}"))?
+}
+
+#[tauri::command]
+pub fn troubleshoot_reconcile(
+    state: State<'_, AppState>,
+    session_id: i64,
+) -> UiResult<plumbob_core::troubleshoot::ReconcileReport> {
+    service::troubleshoot_reconcile(&state.db, &state.data_dir, session_id)
+}

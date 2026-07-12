@@ -22,6 +22,8 @@ import type {
   QuarantineView,
   ScanOutcome,
   SuspectedDuplicateGroup,
+  TroubleshootReconcileReport,
+  TroubleshootSession,
 } from "./types";
 
 // App identity & settings -----------------------------------------------
@@ -118,3 +120,20 @@ export const listOperationSteps = (operationRowId: number) =>
 
 export const revealInExplorer = (path: string) =>
   call<void>("reveal_in_explorer", { path });
+
+// --- Troubleshooter (the 50/50 assistant) ----------------------------------
+
+export const troubleshootActive = () =>
+  call<TroubleshootSession | null>("troubleshoot_active");
+
+export const troubleshootStart = (note?: string) =>
+  call<TroubleshootSession>("troubleshoot_start", { note: note ?? null });
+
+export const troubleshootVerdict = (sessionId: number, problemPresent: boolean) =>
+  call<TroubleshootSession>("troubleshoot_verdict", { sessionId, problemPresent });
+
+export const troubleshootAbort = (sessionId: number) =>
+  call<TroubleshootSession>("troubleshoot_abort", { sessionId });
+
+export const troubleshootReconcile = (sessionId: number) =>
+  call<TroubleshootReconcileReport>("troubleshoot_reconcile", { sessionId });

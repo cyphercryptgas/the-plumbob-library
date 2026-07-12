@@ -119,6 +119,7 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
     counts,
     duplicates,
     conflicts,
+    troubleshoot,
     isGameRunning,
     scan,
     startScan,
@@ -240,6 +241,12 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-2">
+        {troubleshoot ? (
+          <Pill tone="warning">
+            Troubleshooting in progress — {troubleshoot.poolSize} suspects,
+            round {troubleshoot.round}
+          </Pill>
+        ) : null}
         <Pill tone={isGameRunning ? "warning" : "sage"}>
           {isGameRunning
             ? "The Sims 4 is running — changes are paused"

@@ -9,7 +9,9 @@ use plumbob_core::dbpf;
 use plumbob_core::duplicates;
 use plumbob_core::hashing;
 use plumbob_core::ops::{self, QuarantineRequest, SnapshotEntry};
+use plumbob_core::ops::JournalSink as _;
 use plumbob_core::paths::SafeRoot;
+use plumbob_core::troubleshoot as ts;
 use plumbob_core::scan::{self, ScanOptions};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -587,4 +589,130 @@ pub fn reveal_in_explorer(dbm: &Mutex<Database>, data_dir: &Path, raw_path: &str
             .map_err(err_str)?;
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Troubleshooter (the 50/50 assistant)
+// ---------------------------------------------------------------------------
+
+/// The holding area for set-aside halves lives beside Quarantine and
+/// Backups, never inside the Mods folder.
+fn troubleshoot_holding_root(data_dir: &Path) -> UiResult<SafeRoot> {
+    let path = data_dir.join("Troubleshoot");
+    std::fs::create_dir_all(&path)
+        .map_err(|e| format!("Could not prepare the troubleshoot holding folder: {e}"))?;
+    SafeRoot::new(&path).map_err(err_str)
+}
+
+/// The engine interleaves database writes with journaling, so it records
+/// into an in-memory journal; the events are replayed into SQLite here once
+/// the connection is free. A journal write failure is surfaced but never
+/// undoes completed filesystem work.
+fn replay_journal(
+    guard: &Database,
+    events: Vec<plumbob_core::ops::JournalEvent>,
+) -> UiResult<()> {
+    if events.is_empty() {
+        return Ok(());
+    }
+    let mut journal = db::ops::SqliteJournal::new(guard.conn());
+    for event in events {
+        journal.record(event);
+    }
+    journal.finish().map_err(err_str)
+}
+
+pub fn troubleshoot_active(dbm: &Mutex<Database>) -> UiResult<Option<ts::SessionView>> {
+    let guard = lock_db(dbm)?;
+    ts::active_session(guard.conn()).map_err(err_str)
+}
+
+/// Starting a session enrolls files and rests in baseline — nothing moves,
+/// so the game may still be running while the user reads the intro.
+pub fn troubleshoot_start(
+    dbm: &Mutex<Database>,
+    data_dir: &Path,
+    note: Option<&str>,
+) -> UiResult<ts::SessionView> {
+    let mut guard = lock_db(dbm)?;
+    let roots = resolve_roots(&guard, data_dir)?;
+    let holding = troubleshoot_holding_root(data_dir)?;
+    let tsr = ts::TroubleshootRoots {
+        mods: &roots.mods,
+        holding: &holding,
+        quarantine: &roots.quarantine,
+    };
+    ts::start_session(guard.conn_mut(), &tsr, note).map_err(err_str)
+}
+
+/// Verdicts arrange files, so the game-closed guard applies. When a verdict
+/// completes the session with a confirmed culprit, the library changed (the
+/// culprit is now quarantined) and the frontend is told.
+pub fn troubleshoot_verdict(
+    app: &AppHandle,
+    dbm: &Mutex<Database>,
+    data_dir: &Path,
+    session_id: i64,
+    problem_present: bool,
+) -> UiResult<ts::SessionView> {
+    ensure_game_closed()?;
+    let mut guard = lock_db(dbm)?;
+    let roots = resolve_roots(&guard, data_dir)?;
+    let holding = troubleshoot_holding_root(data_dir)?;
+    let tsr = ts::TroubleshootRoots {
+        mods: &roots.mods,
+        holding: &holding,
+        quarantine: &roots.quarantine,
+    };
+    let verdict = if problem_present {
+        ts::Verdict::ProblemPresent
+    } else {
+        ts::Verdict::ProblemGone
+    };
+    let mut journal = plumbob_core::ops::VecJournal::default();
+    let result = ts::submit_verdict(guard.conn_mut(), &tsr, session_id, verdict, &mut journal);
+    replay_journal(&guard, journal.0)?;
+    let view = result.map_err(err_str)?;
+    if view.outcome.as_deref() == Some("culprit_confirmed") {
+        let _ = app.emit("library://changed", "troubleshoot");
+    }
+    Ok(view)
+}
+
+pub fn troubleshoot_abort(
+    dbm: &Mutex<Database>,
+    data_dir: &Path,
+    session_id: i64,
+) -> UiResult<ts::SessionView> {
+    ensure_game_closed()?;
+    let mut guard = lock_db(dbm)?;
+    let roots = resolve_roots(&guard, data_dir)?;
+    let holding = troubleshoot_holding_root(data_dir)?;
+    let tsr = ts::TroubleshootRoots {
+        mods: &roots.mods,
+        holding: &holding,
+        quarantine: &roots.quarantine,
+    };
+    let mut journal = plumbob_core::ops::VecJournal::default();
+    let result = ts::abort_session(guard.conn_mut(), &tsr, session_id, &mut journal);
+    replay_journal(&guard, journal.0)?;
+    result.map_err(err_str)
+}
+
+/// Heal member rows from disk truth (rows only — no files move), typically
+/// when the wizard opens onto an already-active session.
+pub fn troubleshoot_reconcile(
+    dbm: &Mutex<Database>,
+    data_dir: &Path,
+    session_id: i64,
+) -> UiResult<ts::ReconcileReport> {
+    let mut guard = lock_db(dbm)?;
+    let roots = resolve_roots(&guard, data_dir)?;
+    let holding = troubleshoot_holding_root(data_dir)?;
+    let tsr = ts::TroubleshootRoots {
+        mods: &roots.mods,
+        holding: &holding,
+        quarantine: &roots.quarantine,
+    };
+    ts::reconcile(guard.conn_mut(), &tsr, session_id).map_err(err_str)
 }

@@ -92,6 +92,10 @@ to the user says so.
 
 * **Plateau 1 (shipped):** core state machine, migration `0004`,
   arrangement engine with rollback, reconciler, 18 tests.
-* **Plateau 2 (next):** shell commands, reconcile-on-open, the
-  game-running guard, and the guided wizard UI.
-* **Plateau 3:** end-to-end validation on the real library and installer.
+* **Plateau 2 (shipped):** shell commands (`troubleshoot_start`,
+  `troubleshoot_verdict`, `troubleshoot_abort`, `troubleshoot_active`,
+  `troubleshoot_reconcile`) behind the game-closed guard, journal replay
+  into Activity, reconcile-on-open, the sidebar badge showing suspects
+  remaining, and the guided wizard screen.
+* **Plateau 3 (next):** end-to-end validation on the real library, then
+  the release notes.

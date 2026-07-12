@@ -7,6 +7,7 @@ export type Route =
   | "library"
   | "duplicates"
   | "conflicts"
+  | "troubleshoot"
   | "quarantine"
   | "backups"
   | "activity"
@@ -17,6 +18,7 @@ const NAV: { route: Route; label: string; icon: IconName }[] = [
   { route: "library", label: "Library", icon: "library" },
   { route: "duplicates", label: "Duplicates", icon: "duplicates" },
   { route: "conflicts", label: "Conflicts", icon: "conflicts" },
+  { route: "troubleshoot", label: "Troubleshoot", icon: "target" },
   { route: "quarantine", label: "Quarantine", icon: "quarantine" },
   { route: "backups", label: "Backups", icon: "backups" },
   { route: "activity", label: "Activity", icon: "activity" },
@@ -120,13 +122,15 @@ export function Sidebar(props: {
   route: Route;
   onNavigate: (route: Route) => void;
 }) {
-  const { counts, duplicates, conflicts, isGameRunning, info } = useApp();
+  const { counts, duplicates, conflicts, troubleshoot, isGameRunning, info } =
+    useApp();
 
   const badge = (route: Route): number | null => {
     if (route === "duplicates" && duplicates.openGroups > 0)
       return duplicates.openGroups;
     if (route === "conflicts" && conflicts.needsLook > 0)
       return conflicts.needsLook;
+    if (route === "troubleshoot" && troubleshoot) return troubleshoot.poolSize;
     if (route === "quarantine" && counts && counts.quarantined > 0)
       return counts.quarantined;
     return null;

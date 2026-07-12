@@ -10,6 +10,7 @@ import { Dashboard } from "./screens/Dashboard";
 import { Settings } from "./screens/Settings";
 import { Library } from "./screens/Library";
 import { Duplicates } from "./screens/Duplicates";
+import { Troubleshoot } from "./screens/Troubleshoot";
 import { Conflicts } from "./screens/Conflicts";
 import { Quarantine } from "./screens/Quarantine";
 import { Backups } from "./screens/Backups";
@@ -20,6 +21,7 @@ const TITLES: Record<Route, string> = {
   library: "Library",
   duplicates: "Duplicate Center",
   conflicts: "Conflicts",
+  troubleshoot: "Troubleshoot",
   quarantine: "Quarantine",
   backups: "Backups",
   activity: "Activity",
@@ -45,6 +47,8 @@ function Screen(props: {
       );
     case "duplicates":
       return <Duplicates />;
+    case "troubleshoot":
+      return <Troubleshoot onNavigate={props.onNavigate} />;
     case "conflicts":
       return <Conflicts />;
     case "quarantine":

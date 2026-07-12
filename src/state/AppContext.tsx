@@ -22,6 +22,7 @@ import type {
   LibraryCounts,
   ScanOutcome,
   ScanProgressEvent,
+  TroubleshootSession,
 } from "../lib/types";
 
 export interface ScanState {
@@ -53,6 +54,9 @@ interface AppContextValue {
   duplicates: DuplicateSummary;
   conflicts: ConflictSummary;
   isGameRunning: boolean;
+  /** The active 50/50 troubleshooting session, if one exists. */
+  troubleshoot: TroubleshootSession | null;
+  setTroubleshoot: (s: TroubleshootSession | null) => void;
   scan: ScanState;
   error: string | null;
   clearError: () => void;
@@ -93,6 +97,9 @@ export function AppProvider(props: { children: ReactNode }) {
   });
   const [error, setError] = useState<string | null>(null);
   const [libraryVersion, setLibraryVersion] = useState(0);
+  const [troubleshoot, setTroubleshoot] = useState<TroubleshootSession | null>(
+    null
+  );
   const scanRunning = useRef(false);
 
   const reportError = useCallback((e: unknown) => setError(asMessage(e)), []);
@@ -132,12 +139,14 @@ export function AppProvider(props: { children: ReactNode }) {
 
   const refreshAll = useCallback(async () => {
     try {
-      const [nextInfo, nextSettings] = await Promise.all([
+      const [nextInfo, nextSettings, nextTroubleshoot] = await Promise.all([
         api.appInfo(),
         api.getSettings(),
+        api.troubleshootActive().catch(() => null),
       ]);
       setInfo(nextInfo);
       setSettings(nextSettings);
+      setTroubleshoot(nextTroubleshoot);
       if (nextSettings.modsFolder) {
         await refreshCounts();
       }
@@ -233,6 +242,8 @@ export function AppProvider(props: { children: ReactNode }) {
       duplicates,
       conflicts,
       isGameRunning,
+      troubleshoot,
+      setTroubleshoot,
       scan,
       error,
       clearError,
@@ -252,6 +263,7 @@ export function AppProvider(props: { children: ReactNode }) {
       duplicates,
       conflicts,
       isGameRunning,
+      troubleshoot,
       scan,
       error,
       clearError,

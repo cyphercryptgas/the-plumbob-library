@@ -302,7 +302,8 @@ export type IconName =
   | "backups" | "activity" | "settings" | "calendar" | "profiles"
   | "file" | "database" | "package" | "code" | "archive" | "alert"
   | "lock" | "help" | "sparkle"
-  | "search";
+  | "search"
+  | "target";
 
 const ICON_PATHS: Record<IconName, ReactNode> = {
   dashboard: (
@@ -359,6 +360,13 @@ const ICON_PATHS: Record<IconName, ReactNode> = {
       <circle cx="9" cy="8" r="3.5" />
       <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" />
       <path d="M16.5 6.9a2.6 2.6 0 1 1 0 4.6M21 20c0-2.5-1.6-4.7-3.8-5.5" />
+    </>
+  ),
+  target: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="3.5" />
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
     </>
   ),
   search: (
