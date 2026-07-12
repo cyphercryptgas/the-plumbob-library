@@ -180,10 +180,16 @@ pub fn run_scan_pipeline(
 
     let summary = {
         let mut guard = lock_db(dbm)?;
-        db::files::reconcile_scan(guard.conn_mut(), &report, scan_type, &opts.excluded_relative)
-            .map_err(err_str)?
-    };
+        let summary = db::files::reconcile_scan(
+            guard.conn_mut(),
+            &report,
+            scan_type,
+            &opts.excluded_relative,
+        )
+        .map_err(err_str)?;
         db::profiles::sync_active_set(guard.conn_mut()).map_err(err_str)?;
+        summary
+    };
 
     // Hash pass. Content identity underpins duplicate detection and every
     // verified operation, so new/changed files are always hashed.
