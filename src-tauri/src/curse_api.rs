@@ -74,6 +74,14 @@ pub struct CurseMod {
     pub links: ModLinks,
     #[serde(default)]
     pub latest_files: Vec<CurseFile>,
+    #[serde(default)]
+    pub authors: Vec<Author>,
+}
+
+#[derive(Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Author {
+    pub name: String,
 }
 
 #[derive(Default, Deserialize)]
@@ -188,6 +196,33 @@ impl CurseClient {
 }
 
 impl CurseClient {
+    /// Free-text search within one game — the name radar's workhorse.
+    pub fn search_mods(
+        &self,
+        game_id: i64,
+        term: &str,
+        page_size: u32,
+    ) -> Result<Vec<CurseMod>, String> {
+        let resp = self
+            .http
+            .get(format!("{BASE}/v1/mods/search"))
+            .header("x-api-key", &self.key)
+            .query(&[
+                ("gameId", game_id.to_string()),
+                ("searchFilter", term.to_string()),
+                ("pageSize", page_size.to_string()),
+            ])
+            .send()
+            .map_err(|e| format!("Could not reach CurseForge: {e}"))?;
+        if !resp.status().is_success() {
+            return Err(Self::friendly(resp.status()));
+        }
+        let env: Envelope<Vec<CurseMod>> = resp
+            .json()
+            .map_err(|e| format!("CurseForge sent an unexpected reply: {e}"))?;
+        Ok(env.data)
+    }
+
     /// A popular Sims 4 mod straight from CurseForge, carrying a
     /// fingerprint *they* computed — the perfect probe input.
     pub fn sample_mod(&self, game_id: i64) -> Result<Option<CurseMod>, String> {

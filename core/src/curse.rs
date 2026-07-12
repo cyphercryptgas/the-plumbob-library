@@ -290,3 +290,182 @@ d x").unwrap();
         assert!(!update_available(9, "2026-03-01T00:00:00Z", 2, "2026-02-01T00:00:00Z"));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tier-2: name-based matching
+// ---------------------------------------------------------------------------
+
+const STOP_TOKENS: [&str; 9] = [
+    "by", "the", "and", "for", "mod", "mods", "ts4", "sims4", "ver",
+];
+
+fn tokenize(name: &str) -> Vec<String> {
+    let mut cleaned = String::with_capacity(name.len() + 8);
+    let mut depth = 0i32;
+    let mut prev: Option<char> = None;
+    let mut prev2: Option<char> = None;
+    for ch in name.chars() {
+        match ch {
+            '[' | '(' | '{' => depth += 1,
+            ']' | ')' | '}' => depth = (depth - 1).max(0),
+            _ if depth > 0 => {}
+            '_' | '-' | '.' | '+' | '~' | '\'' | ',' | '!' | '&' => {
+                cleaned.push(' ');
+                prev2 = prev;
+                prev = Some(' ');
+                continue;
+            }
+            c => {
+                // CamelCase seams: aB → a B, and ABc → A Bc (acronym end).
+                let lower_to_upper =
+                    matches!(prev, Some(p) if p.is_lowercase() || p.is_ascii_digit())
+                        && c.is_uppercase();
+                let acronym_end = matches!(prev, Some(p) if p.is_uppercase())
+                    && matches!(prev2, Some(q) if q.is_uppercase())
+                    && c.is_lowercase();
+                if lower_to_upper {
+                    cleaned.push(' ');
+                } else if acronym_end {
+                    let kept = cleaned.pop();
+                    cleaned.push(' ');
+                    if let Some(k) = kept {
+                        cleaned.push(k);
+                    }
+                }
+                cleaned.push(c);
+                prev2 = prev;
+                prev = Some(c);
+                continue;
+            }
+        }
+        prev2 = prev;
+        prev = None;
+    }
+    cleaned
+        .split_whitespace()
+        .map(|t| t.to_lowercase())
+        .filter(|t| {
+            t.len() > 1
+                && !STOP_TOKENS.contains(&t.as_str())
+                && !t.chars().all(|c| c.is_ascii_digit())
+                && !is_versionish(t)
+                && !is_hexish(t)
+        })
+        .collect()
+}
+
+fn is_versionish(t: &str) -> bool {
+    let core = t.strip_prefix('v').unwrap_or(t);
+    !core.is_empty()
+        && core.chars().all(|c| c.is_ascii_digit() || c == '.')
+        && core.chars().any(|c| c.is_ascii_digit())
+}
+
+fn is_hexish(t: &str) -> bool {
+    t.len() >= 6 && t.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// A CurseForge search term derived from a mod's file name, or `None`
+/// when the name carries too little language to search responsibly
+/// (hash-named CC, single-token stubs).
+pub fn search_term(file_name: &str) -> Option<String> {
+    let stem = file_name
+        .strip_suffix(crate::scan::DISABLED_SUFFIX)
+        .unwrap_or(file_name);
+    let stem = stem
+        .strip_suffix(".package")
+        .or_else(|| stem.strip_suffix(".ts4script"))
+        .unwrap_or(stem);
+    let tokens = tokenize(stem);
+    let alpha: usize = tokens.iter().map(|t| t.chars().filter(|c| c.is_alphabetic()).count()).sum();
+    if tokens.len() < 2 || alpha < 6 {
+        return None;
+    }
+    Some(tokens.into_iter().take(6).collect::<Vec<_>>().join(" "))
+}
+
+/// How well a candidate mod (name + author names) covers the local term's
+/// tokens: the fraction of term tokens found among the candidate's.
+pub fn name_similarity(term: &str, mod_name: &str, authors: &[String]) -> f32 {
+    let term_tokens: Vec<String> = term.split_whitespace().map(str::to_string).collect();
+    if term_tokens.is_empty() {
+        return 0.0;
+    }
+    let mut candidate = tokenize(mod_name);
+    for a in authors {
+        candidate.extend(tokenize(a));
+    }
+    let hits = term_tokens
+        .iter()
+        .filter(|t| candidate.iter().any(|c| c == *t))
+        .count();
+    hits as f32 / term_tokens.len() as f32
+}
+
+/// Accept a name match only when it covers most of the term with at least
+/// two shared tokens — approximate, and labeled so everywhere it appears.
+pub fn accept_name_match(term: &str, mod_name: &str, authors: &[String]) -> Option<f32> {
+    let sim = name_similarity(term, mod_name, authors);
+    let shared = (sim * term.split_whitespace().count() as f32).round() as usize;
+    if sim >= 0.6 && shared >= 2 {
+        Some(sim)
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod name_tests {
+    use super::*;
+
+    #[test]
+    fn search_terms_extract_language_and_skip_noise() {
+        assert_eq!(
+            search_term("KUTTOE_NewEmotionalTraits.package").as_deref(),
+            Some("kuttoe new emotional traits")
+        );
+        assert_eq!(
+            search_term("mc_cmd_center_2025.3.ts4script").as_deref(),
+            Some("mc cmd center")
+        );
+        assert_eq!(
+            search_term("[SIMCREDIBLE] LivingSuite Sofa v2.package").as_deref(),
+            Some("living suite sofa")
+        );
+        assert_eq!(
+            search_term("UICheats_v1.42.package.off").as_deref(),
+            Some("ui cheats")
+        );
+        // Hash-named CC and stubs are skipped, not guessed at.
+        assert_eq!(search_term("7cbcd7a91f3e.package"), None);
+        assert_eq!(search_term("hair.package"), None);
+    }
+
+    #[test]
+    fn similarity_accepts_real_pairs_and_rejects_strangers() {
+        assert!(accept_name_match(
+            "kuttoe new emotional traits",
+            "New Emotional Traits",
+            &["Kuttoe".to_string()]
+        )
+        .is_some());
+        assert!(accept_name_match(
+            "mc cmd center",
+            "MC Command Center",
+            &["Deaderpool".to_string()]
+        )
+        .is_some());
+        assert!(accept_name_match(
+            "ui cheats extension",
+            "UI Cheats Extension",
+            &["weerbesu".to_string()]
+        )
+        .is_some());
+        assert!(accept_name_match(
+            "livingsuite sofa",
+            "Cottage Kitchen Set",
+            &["SIMcredible".to_string()]
+        )
+        .is_none());
+    }
+}

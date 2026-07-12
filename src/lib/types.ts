@@ -317,6 +317,8 @@ export interface PatchCheckSummary {
   updates: number;
   unknown: number;
   corpusProbe: boolean | null;
+  nameMatched: number;
+  rateLimited: boolean;
   checkedAt: string;
 }
 
@@ -335,5 +337,7 @@ export interface CurseStatusRow {
   latestFileName: string | null;
   latestFileDate: string | null;
   updateAvailable: boolean;
+  matchKind: string | null;
+  confidence: number | null;
   checkedAt: string | null;
 }

@@ -1083,6 +1083,11 @@ pub struct PatchCheckSummary {
     /// itself? `Some(false)` means their exact-match index doesn't cover
     /// this game; `None` means the probe couldn't run.
     pub corpus_probe: Option<bool>,
+    /// Files matched approximately by name (subset of `matched`).
+    pub name_matched: usize,
+    /// The name tier hit CurseForge's rate limit and paused; the lookup
+    /// cache keeps its progress, so running again continues.
+    pub rate_limited: bool,
     pub checked_at: String,
 }
 
@@ -1141,30 +1146,6 @@ pub fn check_curse_updates(
     // Phase 2: who does CurseForge recognize?
     let client = crate::curse_api::CurseClient::new(&key)?;
     let game_id = client.find_sims4_game_id()?;
-    let fingerprints: Vec<u32> = pairs.iter().map(|(fp, _)| *fp).collect();
-    let mut matched_files: Vec<crate::curse_api::CurseFile> = Vec::new();
-    let batches: Vec<&[u32]> = fingerprints.chunks(500).collect();
-    emit_patch(app, "Matching against CurseForge", 0, batches.len().max(1));
-    for (i, chunk) in batches.iter().enumerate() {
-        matched_files.extend(client.match_fingerprints(game_id, chunk)?);
-        emit_patch(app, "Matching against CurseForge", i + 1, batches.len());
-    }
-
-    // Phase 3: resolve the matched mods (names, links, latest files).
-    let mut mod_ids: Vec<i64> = matched_files.iter().map(|f| f.mod_id).collect();
-    mod_ids.sort_unstable();
-    mod_ids.dedup();
-    let mut mods: std::collections::HashMap<i64, crate::curse_api::CurseMod> =
-        std::collections::HashMap::with_capacity(mod_ids.len());
-    let mod_batches: Vec<&[i64]> = mod_ids.chunks(50).collect();
-    emit_patch(app, "Resolving mods", 0, mod_batches.len().max(1));
-    for (i, chunk) in mod_batches.iter().enumerate() {
-        for m in client.get_mods(chunk)? {
-            mods.insert(m.id, m);
-        }
-        emit_patch(app, "Resolving mods", i + 1, mod_batches.len());
-    }
-
     // Corpus probe: fetch a popular Sims 4 mod and feed CurseForge's own
     // fingerprint for it back into the matcher. Our hash is certified
     // against the ecosystem crate, so this isolates the remaining suspect.
@@ -1184,6 +1165,136 @@ pub fn check_curse_updates(
         Ok(Some(hits.iter().any(|h| h.mod_id == sample.id)))
     })()
     .unwrap_or(None);
+
+    let fingerprints: Vec<u32> = pairs.iter().map(|(fp, _)| *fp).collect();
+    let mut matched_files: Vec<crate::curse_api::CurseFile> = Vec::new();
+    if corpus_probe != Some(false) {
+        let batches: Vec<&[u32]> = fingerprints.chunks(500).collect();
+        emit_patch(app, "Matching against CurseForge", 0, batches.len().max(1));
+        for (i, chunk) in batches.iter().enumerate() {
+            matched_files.extend(client.match_fingerprints(game_id, chunk)?);
+            emit_patch(app, "Matching against CurseForge", i + 1, batches.len());
+        }
+    }
+
+    // Tier-2 — the name radar. Terms are derived per file, deduplicated,
+    // and every search (hit or miss) is cached so a rate-limited run
+    // resumes instead of restarting.
+    let fp_matched_ids: std::collections::HashSet<i64> = {
+        let by_fp: std::collections::HashMap<i64, ()> = matched_files
+            .iter()
+            .map(|f| (f.file_fingerprint, ()))
+            .collect();
+        pairs
+            .iter()
+            .filter(|(fp, _)| by_fp.contains_key(&i64::from(*fp)))
+            .map(|(_, id)| *id)
+            .collect()
+    };
+    let eligible_rows = {
+        let guard = lock_db(dbm)?;
+        db::curse::eligible_files(guard.conn()).map_err(err_str)?
+    };
+    let mut term_files: std::collections::HashMap<String, Vec<(i64, Option<String>)>> =
+        std::collections::HashMap::new();
+    for (file_id, file_name, mtime) in &eligible_rows {
+        if fp_matched_ids.contains(file_id) {
+            continue;
+        }
+        if let Some(term) = plumbob_core::curse::search_term(file_name) {
+            term_files.entry(term).or_default().push((*file_id, mtime.clone()));
+        }
+    }
+    let known = {
+        let guard = lock_db(dbm)?;
+        db::curse::known_lookups(guard.conn()).map_err(err_str)?
+    };
+    let mut term_hits: std::collections::HashMap<String, i64> = known
+        .iter()
+        .filter_map(|(t, m)| m.map(|id| (t.clone(), id)))
+        .filter(|(t, _)| term_files.contains_key(t))
+        .collect();
+    let mut fresh_mods: std::collections::HashMap<i64, crate::curse_api::CurseMod> =
+        std::collections::HashMap::new();
+    let mut rate_limited = false;
+    let missing: Vec<String> = term_files
+        .keys()
+        .filter(|t| !known.contains_key(*t))
+        .cloned()
+        .collect();
+    emit_patch(app, "Matching by name", 0, missing.len().max(1));
+    for (i, term) in missing.iter().enumerate() {
+        match client.search_mods(game_id, term, 5) {
+            Ok(candidates) => {
+                let best = candidates
+                    .into_iter()
+                    .filter_map(|m| {
+                        let authors: Vec<String> =
+                            m.authors.iter().map(|a| a.name.clone()).collect();
+                        plumbob_core::curse::accept_name_match(term, &m.name, &authors)
+                            .map(|sim| (sim, m))
+                    })
+                    .max_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                let guard = lock_db(dbm)?;
+                match best {
+                    Some((sim, m)) => {
+                        db::curse::upsert_lookup(
+                            guard.conn(),
+                            term,
+                            Some(m.id),
+                            Some(&m.name),
+                            Some(f64::from(sim)),
+                        )
+                        .map_err(err_str)?;
+                        term_hits.insert(term.clone(), m.id);
+                        fresh_mods.insert(m.id, m);
+                    }
+                    None => {
+                        db::curse::upsert_lookup(guard.conn(), term, None, None, None)
+                            .map_err(err_str)?;
+                    }
+                }
+            }
+            Err(e) if e.contains("rate-limit") => {
+                rate_limited = true;
+                break;
+            }
+            Err(e) => return Err(e),
+        }
+        emit_patch(app, "Matching by name", i + 1, missing.len());
+    }
+    let name_confidence: std::collections::HashMap<String, f64> = {
+        let guard = lock_db(dbm)?;
+        let mut stmt = guard
+            .conn()
+            .prepare("SELECT term, confidence FROM curse_name_lookups WHERE curse_mod_id IS NOT NULL")
+            .map_err(err_str)?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)))
+            .map_err(err_str)?
+            .collect::<Result<std::collections::HashMap<_, _>, _>>()
+            .map_err(err_str)?;
+        rows
+    };
+
+    // Phase 3: resolve the matched mods (names, links, latest files).
+    let mut mod_ids: Vec<i64> = matched_files.iter().map(|f| f.mod_id).collect();
+    mod_ids.extend(term_hits.values().copied());
+    mod_ids.sort_unstable();
+    mod_ids.dedup();
+    let mut mods: std::collections::HashMap<i64, crate::curse_api::CurseMod> =
+        std::collections::HashMap::with_capacity(mod_ids.len());
+    mods.extend(fresh_mods);
+    mod_ids.retain(|id| !mods.contains_key(id));
+    let mod_batches: Vec<&[i64]> = mod_ids.chunks(50).collect();
+    emit_patch(app, "Resolving mods", 0, mod_batches.len().max(1));
+    for (i, chunk) in mod_batches.iter().enumerate() {
+        for m in client.get_mods(chunk)? {
+            mods.insert(m.id, m);
+        }
+        emit_patch(app, "Resolving mods", i + 1, mod_batches.len());
+    }
+
 
     // Phase 4: compare and cache. The fingerprint endpoint leaks matches
     // from other games (a Minecraft jar proved it in the field), so every
@@ -1228,11 +1339,11 @@ pub fn check_curse_updates(
         records.push(db::curse::MatchRecord {
             file_id: *file_id,
             curse_mod_id: hit.mod_id,
-            curse_file_id: hit.id,
+            curse_file_id: Some(hit.id),
             mod_name: mod_info.name.clone(),
             website_url: mod_info.links.website_url.clone(),
-            matched_file_name: hit.file_name.clone(),
-            matched_file_date: hit.file_date.clone(),
+            matched_file_name: Some(hit.file_name.clone()),
+            matched_file_date: Some(hit.file_date.clone()),
             latest_file_id: latest.id,
             latest_file_name: latest.file_name.clone(),
             latest_file_date: latest.file_date.clone(),
@@ -1242,7 +1353,46 @@ pub fn check_curse_updates(
                 latest.id,
                 &latest.file_date,
             ),
+            match_kind: "fingerprint",
+            confidence: None,
         });
+    }
+    let mut name_matched = 0usize;
+    for (term, files) in &term_files {
+        let Some(mod_id) = term_hits.get(term) else { continue };
+        let Some(mod_info) = mods.get(mod_id) else { continue };
+        let Some(latest) = mod_info.latest_files.iter().max_by(|a, b| {
+            if plumbob_core::curse::date_newer(&a.file_date, &b.file_date) {
+                std::cmp::Ordering::Less
+            } else if plumbob_core::curse::date_newer(&b.file_date, &a.file_date) {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        }) else {
+            continue;
+        };
+        for (file_id, mtime) in files {
+            name_matched += 1;
+            records.push(db::curse::MatchRecord {
+                file_id: *file_id,
+                curse_mod_id: *mod_id,
+                curse_file_id: None,
+                mod_name: mod_info.name.clone(),
+                website_url: mod_info.links.website_url.clone(),
+                matched_file_name: None,
+                matched_file_date: None,
+                latest_file_id: latest.id,
+                latest_file_name: latest.file_name.clone(),
+                latest_file_date: latest.file_date.clone(),
+                update_available: mtime
+                    .as_deref()
+                    .map(|m| plumbob_core::curse::date_newer(m, &latest.file_date))
+                    .unwrap_or(false),
+                match_kind: "name",
+                confidence: name_confidence.get(term).copied(),
+            });
+        }
     }
     let matched = records.len();
     let updates = records.iter().filter(|r| r.update_available).count();
@@ -1260,6 +1410,8 @@ pub fn check_curse_updates(
         updates,
         unknown: eligible.saturating_sub(matched),
         corpus_probe,
+        name_matched,
+        rate_limited,
         checked_at,
     })
 }

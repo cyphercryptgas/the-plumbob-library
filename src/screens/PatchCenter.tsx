@@ -147,19 +147,39 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
             {summary.newlyFingerprinted > 0
               ? ` (${summary.newlyFingerprinted.toLocaleString()} newly fingerprinted)`
               : ""}
-            : {summary.matched.toLocaleString()} known to CurseForge,{" "}
-            {summary.updates.toLocaleString()} with updates
+            : {summary.matched.toLocaleString()} known to CurseForge
+            {summary.nameMatched > 0
+              ? ` (${summary.nameMatched.toLocaleString()} by name)`
+              : ""}
+            , {summary.updates.toLocaleString()} with updates
             {summary.otherGame > 0
               ? ` (${summary.otherGame.toLocaleString()} cross-game fingerprint ${summary.otherGame === 1 ? "collision" : "collisions"} ignored)`
               : ""}
             .
           </p>
         ) : null}
-        {summary && summary.matched === 0 && summary.corpusProbe !== null ? (
+        {summary && summary.rateLimited ? (
           <p className="mt-2 text-xs leading-relaxed text-warning">
-            {summary.corpusProbe === false
-              ? "Diagnosis: CurseForge's matcher couldn't even find a Sims 4 fingerprint it computed itself — their exact-match index doesn't cover this game. Name-based matching is the planned next tier."
-              : "Diagnosis: the matcher works for Sims 4 (verified against CurseForge's own fingerprint), so these exact files were never uploaded there — creators' Patreon and site builds differ byte-for-byte. Name-based matching is the planned next tier."}
+            CurseForge rate-limited the name search partway — everything found
+            so far is cached, so running Check again continues where it
+            stopped.
+          </p>
+        ) : null}
+        {summary && summary.corpusProbe === false ? (
+          <p className="mt-2 text-xs leading-relaxed text-ink-muted">
+            CurseForge's exact-match index doesn't cover The Sims 4 (their own
+            fingerprints fail to match themselves), so the radar matches by
+            name instead —{" "}
+            {summary.nameMatched > 0
+              ? `${summary.nameMatched.toLocaleString()} mods recognized this way, labeled ≈.`
+              : "nothing confident enough was found this run."}
+          </p>
+        ) : summary && summary.matched === 0 && summary.corpusProbe === true ? (
+          <p className="mt-2 text-xs leading-relaxed text-warning">
+            Diagnosis: the exact matcher works for Sims 4, so these exact
+            files were never uploaded to CurseForge — creators' Patreon and
+            site builds differ byte-for-byte. Name matching also found nothing
+            confident this run.
           </p>
         ) : null}
       </Card>
@@ -210,11 +230,23 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
                     {r.modName}
                   </span>
                   <span className="block truncate text-xs text-ink-muted">
-                    You have {r.matchedFileName} ·{" "}
-                    {shortDate(r.matchedFileDate)} → latest{" "}
-                    {r.latestFileName} · {shortDate(r.latestFileDate)}
+                    {r.matchKind === "name"
+                      ? `Matched by name — latest ${r.latestFileName} · ${shortDate(r.latestFileDate)}, newer than your copy`
+                      : `You have ${r.matchedFileName} · ${shortDate(r.matchedFileDate)} → latest ${r.latestFileName} · ${shortDate(r.latestFileDate)}`}
                   </span>
                 </span>
+                {r.matchKind === "name" ? (
+                  <Pill
+                    tone="neutral"
+                    title={
+                      r.confidence
+                        ? `Approximate match by name · ${Math.round(r.confidence * 100)}% token overlap`
+                        : "Approximate match by name"
+                    }
+                  >
+                    ≈ name
+                  </Pill>
+                ) : null}
                 {!r.enabled ? <Pill tone="neutral">off</Pill> : null}
                 <Button
                   variant="quiet"

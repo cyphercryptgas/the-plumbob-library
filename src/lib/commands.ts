@@ -60,12 +60,14 @@ export const getLibraryCounts = () =>
 export const listFiles = (options?: {
   search?: string;
   filter?: LibraryFilter;
+  sort?: string;
   limit?: number;
   offset?: number;
 }) =>
   call<FileRow[]>("list_files", {
     search: options?.search ?? null,
     filter: options?.filter ?? null,
+    sort: options?.sort ?? null,
     limit: options?.limit ?? null,
     offset: options?.offset ?? null,
   });

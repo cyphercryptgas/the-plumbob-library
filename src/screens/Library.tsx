@@ -70,6 +70,16 @@ export function Library(props: { initialSearch?: string }) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [quarantining, setQuarantining] = useState<number[] | null>(null);
   const [toggling, setToggling] = useState(false);
+  const [sort, setSort] = useState<"name" | "added_desc" | "added_asc">("name");
+  const SORT_LABEL: Record<string, string> = {
+    name: "Name A–Z",
+    added_desc: "Newest first",
+    added_asc: "Oldest first",
+  };
+  const cycleSort = () =>
+    setSort((s) =>
+      s === "name" ? "added_desc" : s === "added_desc" ? "added_asc" : "name"
+    );
 
   const toggleFiles = async (ids: number[], enable: boolean) => {
     setToggling(true);
@@ -107,6 +117,7 @@ export function Library(props: { initialSearch?: string }) {
       api.listFiles({
         search: query || undefined,
         filter,
+        sort,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       }),
@@ -123,7 +134,7 @@ export function Library(props: { initialSearch?: string }) {
     return () => {
       alive = false;
     };
-  }, [query, filter, page, libraryVersion, reportError]);
+  }, [query, filter, sort, page, libraryVersion, reportError]);
 
   const selectableRows = useMemo(
     () => rows.filter((r) => !r.missing && r.status !== "quarantined"),
@@ -196,6 +207,14 @@ export function Library(props: { initialSearch?: string }) {
                   ? `Showing ${rangeStart}–${rangeEnd} of ${total.toLocaleString()}`
                   : `Showing ${rangeStart}–${rangeEnd}`}
           </span>
+          <button
+            type="button"
+            onClick={cycleSort}
+            title="Cycle sort order"
+            className="rounded-control border border-border-subtle px-2.5 py-1 text-xs text-ink-secondary transition hover:border-gold/60"
+          >
+            {SORT_LABEL[sort]} ⇅
+          </button>
         </div>
         <div
           className="mt-3 flex flex-wrap items-center gap-1.5"

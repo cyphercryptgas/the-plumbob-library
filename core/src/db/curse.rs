@@ -50,15 +50,18 @@ pub fn fingerprint_pairs(conn: &Connection) -> Result<Vec<(u32, i64)>, DbError> 
 pub struct MatchRecord {
     pub file_id: i64,
     pub curse_mod_id: i64,
-    pub curse_file_id: i64,
+    pub curse_file_id: Option<i64>,
     pub mod_name: String,
     pub website_url: Option<String>,
-    pub matched_file_name: String,
-    pub matched_file_date: String,
+    pub matched_file_name: Option<String>,
+    pub matched_file_date: Option<String>,
     pub latest_file_id: i64,
     pub latest_file_name: String,
     pub latest_file_date: String,
     pub update_available: bool,
+    /// 'fingerprint' (exact bytes) or 'name' (approximate).
+    pub match_kind: &'static str,
+    pub confidence: Option<f64>,
 }
 
 /// A check replaces the whole cache atomically — the radar always shows
@@ -76,8 +79,9 @@ pub fn replace_matches(
                 (file_id, curse_mod_id, curse_file_id, mod_name, website_url,
                  matched_file_name, matched_file_date, latest_file_id,
                  latest_file_name, latest_file_date, update_available,
-                 checked_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                 match_kind, confidence, checked_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                 ?14)",
         )?;
         for m in records {
             stmt.execute(params![
@@ -92,6 +96,8 @@ pub fn replace_matches(
                 m.latest_file_name,
                 m.latest_file_date,
                 m.update_available,
+                m.match_kind,
+                m.confidence,
                 checked_at,
             ])?;
         }
@@ -118,6 +124,8 @@ pub struct CurseStatusRow {
     pub latest_file_name: Option<String>,
     pub latest_file_date: Option<String>,
     pub update_available: bool,
+    pub match_kind: Option<String>,
+    pub confidence: Option<f64>,
     pub checked_at: Option<String>,
 }
 
@@ -128,7 +136,8 @@ pub fn status(conn: &Connection) -> Result<Vec<CurseStatusRow>, DbError> {
                 m.curse_mod_id, m.latest_file_id,
                 m.mod_name, m.website_url, m.matched_file_name,
                 m.matched_file_date, m.latest_file_name, m.latest_file_date,
-                COALESCE(m.update_available, 0), m.checked_at
+                COALESCE(m.update_available, 0), m.match_kind, m.confidence,
+                m.checked_at
          FROM files f
          LEFT JOIN curse_matches m ON m.file_id = f.id
          WHERE f.missing = 0 AND f.status = 'current'
@@ -154,7 +163,9 @@ pub fn status(conn: &Connection) -> Result<Vec<CurseStatusRow>, DbError> {
                 latest_file_name: r.get(11)?,
                 latest_file_date: r.get(12)?,
                 update_available: r.get::<_, i64>(13)? != 0,
-                checked_at: r.get(14)?,
+                match_kind: r.get(14)?,
+                confidence: r.get(15)?,
+                checked_at: r.get(16)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -204,15 +215,17 @@ mod tests {
         let rec = MatchRecord {
             file_id: a,
             curse_mod_id: 100,
-            curse_file_id: 555,
+            curse_file_id: Some(555),
             mod_name: "UI Cheats".into(),
             website_url: Some("https://example.test/ui".into()),
-            matched_file_name: "UICheats_v1.package".into(),
-            matched_file_date: "2026-01-01T00:00:00Z".into(),
+            matched_file_name: Some("UICheats_v1.package".into()),
+            matched_file_date: Some("2026-01-01T00:00:00Z".into()),
             latest_file_id: 556,
             latest_file_name: "UICheats_v2.package".into(),
             latest_file_date: "2026-06-01T00:00:00Z".into(),
             update_available: true,
+            match_kind: "fingerprint",
+            confidence: None,
         };
         replace_matches(db.conn_mut(), &[rec.clone()]).unwrap();
         let rows = status(db.conn()).unwrap();
@@ -229,4 +242,58 @@ mod tests {
         replace_matches(db.conn_mut(), &[]).unwrap();
         assert!(status(db.conn()).unwrap().iter().all(|r| r.mod_name.is_none()));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Name-lookup cache (tier-2)
+// ---------------------------------------------------------------------------
+
+/// Every term ever searched, hit or miss — misses are cached too so a
+/// resumed or repeated check never re-asks CurseForge the same question.
+pub fn known_lookups(
+    conn: &Connection,
+) -> Result<std::collections::HashMap<String, Option<i64>>, DbError> {
+    let mut stmt =
+        conn.prepare("SELECT term, curse_mod_id FROM curse_name_lookups")?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?)))?
+        .collect::<Result<std::collections::HashMap<_, _>, _>>()?;
+    Ok(rows)
+}
+
+pub fn upsert_lookup(
+    conn: &Connection,
+    term: &str,
+    curse_mod_id: Option<i64>,
+    mod_name: Option<&str>,
+    confidence: Option<f64>,
+) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO curse_name_lookups
+            (term, curse_mod_id, mod_name, confidence, checked_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(term) DO UPDATE SET
+            curse_mod_id = excluded.curse_mod_id,
+            mod_name = excluded.mod_name,
+            confidence = excluded.confidence,
+            checked_at = excluded.checked_at",
+        params![term, curse_mod_id, mod_name, confidence, now_rfc3339()],
+    )?;
+    Ok(())
+}
+
+/// Eligible files with what the name tier needs: the logical file name and
+/// the disk mtime (the honest "your build" date for approximate matches).
+pub fn eligible_files(
+    conn: &Connection,
+) -> Result<Vec<(i64, String, Option<String>)>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, current_filename, modified_at_fs FROM files
+         WHERE missing = 0 AND status = 'current'
+           AND file_type IN ('package', 'ts4script')",
+    )?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
 }

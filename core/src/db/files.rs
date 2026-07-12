@@ -413,15 +413,22 @@ pub fn list_files(
     conn: &Connection,
     search: Option<&str>,
     filter: Option<&str>,
+    sort: Option<&str>,
     limit: i64,
     offset: i64,
 ) -> Result<Vec<FileRow>, DbError> {
     let clause = filter_clause(filter)?;
+    // Sort keys are matched here, never interpolated from user text.
+    let order = match sort.unwrap_or("name") {
+        "added_desc" => "first_seen_at DESC, relative_path COLLATE NOCASE",
+        "added_asc" => "first_seen_at ASC, relative_path COLLATE NOCASE",
+        _ => "relative_path COLLATE NOCASE",
+    };
     let sql = format!(
         "SELECT {FILE_ROW_COLUMNS}
          FROM files
          WHERE (?1 IS NULL OR relative_path LIKE '%' || ?1 || '%') AND {clause}
-         ORDER BY relative_path COLLATE NOCASE
+         ORDER BY {order}
          LIMIT ?2 OFFSET ?3"
     );
     let mut stmt = conn.prepare(&sql)?;
@@ -705,11 +712,11 @@ mod tests {
             mk_file("BuildBuy/sofa.package", 10, 2, FileKind::Package),
         ]);
         reconcile_scan(db.conn_mut(), &r, "initial", &[]).unwrap();
-        let hair = list_files(db.conn(), Some("hair"), None, 50, 0).unwrap();
+        let hair = list_files(db.conn(), Some("hair"), None, None, 50, 0).unwrap();
         assert_eq!(hair.len(), 2);
-        let page = list_files(db.conn(), None, None, 2, 0).unwrap();
+        let page = list_files(db.conn(), None, None, None, 2, 0).unwrap();
         assert_eq!(page.len(), 2);
-        let rest = list_files(db.conn(), None, None, 2, 2).unwrap();
+        let rest = list_files(db.conn(), None, None, None, 2, 2).unwrap();
         assert_eq!(rest.len(), 1);
     }
 
@@ -728,20 +735,20 @@ mod tests {
         ]);
         reconcile_scan(db.conn_mut(), &r, "initial", &[]).unwrap();
 
-        let zeroes = list_files(db.conn(), None, Some("zero-byte"), 50, 0).unwrap();
+        let zeroes = list_files(db.conn(), None, Some("zero-byte"), None, 50, 0).unwrap();
         assert_eq!(zeroes.len(), 1);
         assert_eq!(zeroes[0].relative_path, "empty.package");
         assert_eq!(count_files(db.conn(), None, Some("zero-byte")).unwrap(), 1);
 
         assert_eq!(
-            list_files(db.conn(), None, Some("deep-scripts"), 50, 0)
+            list_files(db.conn(), None, Some("deep-scripts"), None, 50, 0)
                 .unwrap()
                 .len(),
             1
         );
         assert_eq!(count_files(db.conn(), None, Some("archives")).unwrap(), 1);
         assert_eq!(count_files(db.conn(), None, Some("packages")).unwrap(), 2);
-        assert!(list_files(db.conn(), None, Some("nonsense"), 50, 0).is_err());
+        assert!(list_files(db.conn(), None, Some("nonsense"), None, 50, 0).is_err());
     }
 
     #[test]

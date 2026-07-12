@@ -52,6 +52,24 @@ pipeline end-to-end and localizes zero-match results to byte-level
 differences between local files and CurseForge uploads. The verdict is
 printed in the summary rather than left to speculation.
 
+### Tier-2 — name matching
+
+Field-proven necessity: the probe showed CurseForge's exact-match index
+does not cover The Sims 4, so exact fingerprints cannot work for this
+game (the fingerprint phase auto-skips on that verdict). Tier-2 derives
+a search term per file — separators and CamelCase seams split,
+bracket-tags, version tokens, hex-ish hashes, and stop-words dropped;
+files whose names carry too little language (hash-named CC) are skipped
+rather than guessed at. One search per unique term; a candidate is
+accepted when its name-plus-authors tokens cover ≥ 60% of the term with
+at least two shared tokens, and the stored confidence is shown wherever
+the match appears, always labeled **≈ name**. Every lookup, including
+misses, is cached in `curse_name_lookups`, making checks resumable
+across rate limits and cheap forever after. Because no specific
+CurseForge file corresponds to a name match, "update available" means
+*their latest release postdates your file's mtime* — a stated
+heuristic, not a version comparison.
+
 ### Privacy
 
 Only anonymous fingerprints and mod ids leave the machine. The API key

@@ -181,6 +181,7 @@ pub fn list_files(
     state: State<'_, AppState>,
     search: Option<String>,
     filter: Option<String>,
+    sort: Option<String>,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> UiResult<Vec<db::files::FileRow>> {
@@ -189,6 +190,7 @@ pub fn list_files(
         guard.conn(),
         search.as_deref(),
         filter.as_deref(),
+        sort.as_deref(),
         limit.unwrap_or(200).clamp(1, 1000),
         offset.unwrap_or(0).max(0),
     )

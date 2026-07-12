@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.9.0 — The Name Radar
+
+* **Tier-2 matching, mandated by evidence.** The corpus probe proved
+  CurseForge's exact-match index doesn't cover The Sims 4, so the radar
+  now matches by *name*: each file yields a cleaned search term
+  (creator prefixes kept, CamelCase split, versions, hashes, and
+  bracket-tags dropped — all pinned by fixtures), files sharing a term
+  share one search, and candidates are scored by token overlap against
+  the mod's name *and* authors. Accepted matches are labeled **≈ name**
+  with their confidence, never dressed up as exact.
+* **Resumable by construction.** Every term ever searched — hit or
+  miss — is cached, so a rate-limited run pauses politely and the next
+  Check continues where it stopped instead of starting over.
+* **Honest updates for approximate matches.** With no exact file to
+  compare, a name match flags an update when CurseForge's latest
+  release postdates your file's on-disk time — a heuristic, presented
+  as one.
+* The dead fingerprint phase is skipped automatically when the probe
+  says the index is absent, and the diagnosis line now reports what the
+  name tier achieved instead of promising it.
+* **Library sorting**: a cycle control next to the count — Name A–Z →
+  Newest first → Oldest first.
+
+
 ## 0.8.1 — The Investigation Release
 
 * **Categories fixed.** The classifier guarded on `parse_status =
