@@ -246,6 +246,41 @@ d x").unwrap();
     }
 
     #[test]
+    fn our_murmur2_is_certified_against_the_ecosystem_crate() {
+        // The `murmur2` crate is what furse (and therefore ferium) ship to
+        // real CurseForge users. Agreement across sizes, seeds, and every
+        // tail length certifies the hash; disagreement anywhere would have
+        // explained a zero-match field result.
+        let mut state: u32 = 0x1234_5678;
+        let mut next = || {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (state >> 24) as u8
+        };
+        for len in (0usize..64).chain([65, 127, 128, 129, 1000, 65_535, 65_536, 200_003]) {
+            let data: Vec<u8> = (0..len).map(|_| next()).collect();
+            for seed in [0u32, 1, 0xDEAD_BEEF] {
+                assert_eq!(
+                    murmur2(&data, seed),
+                    murmur2::murmur2(&data, seed),
+                    "len {len} seed {seed}"
+                );
+            }
+        }
+        // And the full CurseForge pipeline shape: strip, then hash, seed 1 —
+        // exactly furse::cf_fingerprint.
+        let raw: Vec<u8> = (0..50_000usize).map(|_| next()).collect();
+        let stripped: Vec<u8> = raw
+            .iter()
+            .copied()
+            .filter(|b| !matches!(b, 9 | 10 | 13 | 32))
+            .collect();
+        assert_eq!(
+            murmur2(&stripped, 1),
+            murmur2::murmur2(&stripped, 1)
+        );
+    }
+
+    #[test]
     fn update_comparison_speaks_curseforge_dates() {
         assert!(update_available(1, "2026-01-01T00:00:00Z", 2, "2026-02-01T00:00:00Z"));
         assert!(!update_available(2, "2026-02-01T00:00:00Z", 2, "2026-02-01T00:00:00Z"));

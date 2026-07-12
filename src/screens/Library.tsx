@@ -29,6 +29,13 @@ const CATEGORY_BADGE: Record<string, string> = {
   other: "Other",
 };
 
+const DATE_FILTERS: { key: LibraryFilter; label: string }[] = [
+  { key: "date_7", label: "Last 7 days" },
+  { key: "date_30", label: "Last 30 days" },
+  { key: "date_90", label: "Last 90 days" },
+  { key: "date_old", label: "Older" },
+];
+
 const CATEGORY_FILTERS: { key: LibraryFilter; label: string }[] = [
   { key: "cat_cas", label: "CAS" },
   { key: "cat_buildbuy", label: "Build/Buy" },
@@ -199,6 +206,29 @@ export function Library(props: { initialSearch?: string }) {
             In game
           </span>
           {CATEGORY_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => setFilter(filter === f.key ? "all" : f.key)}
+              className={`rounded-control border px-2.5 py-1 text-xs transition ${
+                filter === f.key
+                  ? "border-transparent bg-accent font-medium text-ink"
+                  : "border-border-subtle text-ink-secondary hover:border-gold/60"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div
+          className="mt-2 flex flex-wrap items-center gap-1.5"
+          role="group"
+          aria-label="Filter by when the file was added"
+        >
+          <span className="mr-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#94875e]">
+            Added
+          </span>
+          {DATE_FILTERS.map((f) => (
             <button
               key={f.key}
               type="button"

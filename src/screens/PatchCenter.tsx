@@ -155,6 +155,13 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
             .
           </p>
         ) : null}
+        {summary && summary.matched === 0 && summary.corpusProbe !== null ? (
+          <p className="mt-2 text-xs leading-relaxed text-warning">
+            {summary.corpusProbe === false
+              ? "Diagnosis: CurseForge's matcher couldn't even find a Sims 4 fingerprint it computed itself — their exact-match index doesn't cover this game. Name-based matching is the planned next tier."
+              : "Diagnosis: the matcher works for Sims 4 (verified against CurseForge's own fingerprint), so these exact files were never uploaded there — creators' Patreon and site builds differ byte-for-byte. Name-based matching is the planned next tier."}
+          </p>
+        ) : null}
       </Card>
 
       {loaded && checkedAt ? (

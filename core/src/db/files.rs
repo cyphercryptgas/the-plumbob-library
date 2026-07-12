@@ -392,6 +392,12 @@ fn filter_clause(filter: Option<&str>) -> Result<&'static str, DbError> {
         "cat_gameplay" => "category = 'gameplay'",
         "cat_scripts" => "category = 'scripts'",
         "cat_other" => "category = 'other'",
+        // first_seen_at is RFC 3339 ('T' separator); date('now') is plain
+        // YYYY-MM-DD — comparing on substr keeps both sides day-precision.
+        "date_7" => "substr(first_seen_at, 1, 10) >= date('now', '-7 days')",
+        "date_30" => "substr(first_seen_at, 1, 10) >= date('now', '-30 days')",
+        "date_90" => "substr(first_seen_at, 1, 10) >= date('now', '-90 days')",
+        "date_old" => "substr(first_seen_at, 1, 10) < date('now', '-90 days')",
         "unreadable" => "parse_status IS NOT NULL AND parse_status != 'ok'",
         other => {
             return Err(DbError::Sqlite(rusqlite::Error::InvalidParameterName(

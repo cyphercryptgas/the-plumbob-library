@@ -512,7 +512,7 @@ mod tests {
                  VALUES (?1, ?2, ?1, ?3, 1, '2026-01-01T00:00:00Z',
                          '2026-01-01T00:00:00Z', ?4)",
                 params![rel, format!("/m/{rel}"), ft,
-                        if parsed { Some("parsed") } else { None }],
+                        if parsed { Some("ok") } else { None }],
             )
             .unwrap();
         db.conn().last_insert_rowid()
@@ -863,7 +863,7 @@ pub fn classify_categories(conn: &Connection) -> Result<usize, DbError> {
         "UPDATE files SET category = CASE
             WHEN file_type = 'ts4script' THEN 'scripts'
             WHEN file_type <> 'package' THEN NULL
-            WHEN parse_status IS NULL OR parse_status <> 'parsed' THEN NULL
+            WHEN parse_status IS NULL OR parse_status <> 'ok' THEN NULL
             WHEN EXISTS (SELECT 1 FROM package_resources r
                          WHERE r.file_id = files.id AND r.type_id IN ({CAS}))
                 THEN 'cas'

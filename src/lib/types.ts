@@ -201,7 +201,11 @@ export type LibraryFilter =
   | "cat_animations"
   | "cat_gameplay"
   | "cat_scripts"
-  | "cat_other";
+  | "cat_other"
+  | "date_7"
+  | "date_30"
+  | "date_90"
+  | "date_old";
 
 export interface ConflictMember {
   fileId: number;
@@ -312,6 +316,7 @@ export interface PatchCheckSummary {
   matched: number;
   updates: number;
   unknown: number;
+  corpusProbe: boolean | null;
   checkedAt: string;
 }
 

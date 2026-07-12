@@ -186,3 +186,16 @@ impl CurseClient {
         Ok(env.data)
     }
 }
+
+impl CurseClient {
+    /// A popular Sims 4 mod straight from CurseForge, carrying a
+    /// fingerprint *they* computed — the perfect probe input.
+    pub fn sample_mod(&self, game_id: i64) -> Result<Option<CurseMod>, String> {
+        let env: Envelope<Vec<CurseMod>> =
+            self.get(&format!("/v1/mods/search?gameId={game_id}&pageSize=5"))?;
+        Ok(env
+            .data
+            .into_iter()
+            .find(|m| m.latest_files.iter().any(|f| f.file_fingerprint != 0)))
+    }
+}

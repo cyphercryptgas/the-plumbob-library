@@ -42,6 +42,16 @@ the whole library once (stored in `files.curse_fingerprint`, migration
 6. Replace the local cache (`curse_matches`) atomically: the radar
    always shows one coherent snapshot with one `checked_at`.
 
+### The corpus probe
+
+Every check also asks CurseForge to match a fingerprint *it computed
+itself* for a popular Sims 4 mod. Our hash is certified against the
+ecosystem's `murmur2` crate, so a failed self-match proves their
+exact-match index doesn't cover this game; a successful one proves the
+pipeline end-to-end and localizes zero-match results to byte-level
+differences between local files and CurseForge uploads. The verdict is
+printed in the summary rather than left to speculation.
+
 ### Privacy
 
 Only anonymous fingerprints and mod ids leave the machine. The API key

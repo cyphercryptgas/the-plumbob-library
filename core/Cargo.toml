@@ -1,6 +1,6 @@
 [package]
 name = "plumbob-core"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
@@ -26,6 +26,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 rusqlite = { version = "0.31", features = ["bundled"] }
 
 [dev-dependencies]
+# Certification oracle: the exact crate ferium/furse use for CurseForge
+# fingerprints — our implementation must agree with it on every input.
+murmur2 = "0.1"
 # default-features off: tempfile's optional `getrandom` feature resolves to an
 # edition-2024 crate that conservative toolchains (e.g. distro Rust 1.75)
 # cannot parse. Tempdir naming falls back to fastrand, which is fine for tests.

@@ -1079,6 +1079,10 @@ pub struct PatchCheckSummary {
     pub matched: usize,
     pub updates: usize,
     pub unknown: usize,
+    /// Can CurseForge's matcher find a Sims 4 fingerprint it computed
+    /// itself? `Some(false)` means their exact-match index doesn't cover
+    /// this game; `None` means the probe couldn't run.
+    pub corpus_probe: Option<bool>,
     pub checked_at: String,
 }
 
@@ -1161,6 +1165,26 @@ pub fn check_curse_updates(
         emit_patch(app, "Resolving mods", i + 1, mod_batches.len());
     }
 
+    // Corpus probe: fetch a popular Sims 4 mod and feed CurseForge's own
+    // fingerprint for it back into the matcher. Our hash is certified
+    // against the ecosystem crate, so this isolates the remaining suspect.
+    let corpus_probe: Option<bool> = (|| -> Result<Option<bool>, String> {
+        let Some(sample) = client.sample_mod(game_id)? else {
+            return Ok(None);
+        };
+        let Some(cf_file) = sample
+            .latest_files
+            .iter()
+            .find(|f| f.file_fingerprint != 0)
+        else {
+            return Ok(None);
+        };
+        let hits =
+            client.match_fingerprints(game_id, &[cf_file.file_fingerprint as u32])?;
+        Ok(Some(hits.iter().any(|h| h.mod_id == sample.id)))
+    })()
+    .unwrap_or(None);
+
     // Phase 4: compare and cache. The fingerprint endpoint leaks matches
     // from other games (a Minecraft jar proved it in the field), so every
     // hit must belong to a Sims 4 mod or it is dropped — and counted.
@@ -1235,6 +1259,7 @@ pub fn check_curse_updates(
         matched,
         updates,
         unknown: eligible.saturating_sub(matched),
+        corpus_probe,
         checked_at,
     })
 }

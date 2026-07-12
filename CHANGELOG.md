@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.8.1 — The Investigation Release
+
+* **Categories fixed.** The classifier guarded on `parse_status =
+  'parsed'`; the parse pass writes `'ok'`. Every package fell through to
+  unclassified — and the unit test agreed, because its seeder shared the
+  same wrong assumption. Both now use the production literal. Run one
+  scan and the In-game filters populate.
+* **The fingerprint is certified.** Our MurmurHash2 now property-tests
+  against the exact `murmur2` crate that furse/ferium ship to real
+  CurseForge users — agreement across every size, seed, and tail length.
+  Zero matches is provably not the math.
+* **So the radar interrogates CurseForge itself.** Each check now runs a
+  corpus probe: fetch a popular Sims 4 mod and feed CurseForge's *own*
+  fingerprint for it back into their matcher. The verdict prints on the
+  screen — either their exact-match index doesn't cover The Sims 4, or
+  it does and these exact bytes were simply never uploaded there. Either
+  way, name-based matching is the planned next tier, no longer a guess.
+* **"Added" date filters** in the Library: last 7 / 30 / 90 days and
+  Older, keyed on when Motherlode first saw each file.
+
+
 ## 0.8.0 — Categories & Radar Truth
 
 * **In-game categories.** Every package is classified by what it *is* —
