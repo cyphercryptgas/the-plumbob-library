@@ -31,15 +31,41 @@ const fileName = (p: string) => p.split(/[\\/]/).pop() ?? p;
 const shortDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
-// Deterministic sparkle for the dark hero — decoration, not data.
-const HERO_STARS: { x: number; y: number; s: number; o: number }[] = [
-  { x: 22, y: 18, s: 2, o: 0.5 }, { x: 64, y: 44, s: 3, o: 0.3 },
-  { x: 118, y: 12, s: 2, o: 0.6 }, { x: 176, y: 52, s: 4, o: 0.25 },
-  { x: 226, y: 26, s: 2, o: 0.55 }, { x: 262, y: 64, s: 3, o: 0.35 },
-  { x: 40, y: 88, s: 2, o: 0.4 }, { x: 150, y: 96, s: 2, o: 0.5 },
-  { x: 208, y: 108, s: 3, o: 0.3 }, { x: 92, y: 70, s: 2, o: 0.45 },
-  { x: 250, y: 118, s: 2, o: 0.5 }, { x: 130, y: 132, s: 3, o: 0.28 },
+// Deterministic night-sky for the dark hero — decoration, not data.
+const HERO_STARS: { x: number; y: number; s: number; o: number; d: number }[] = [
+  { x: 10, y: 124, s: 2, o: 0.53, d: 0.8 },
+  { x: 26, y: 39, s: 2, o: 0.42, d: 4.3 },
+  { x: 75, y: 41, s: 2, o: 0.48, d: 0.8 },
+  { x: 278, y: 118, s: 6, o: 0.25, d: 3.6 },
+  { x: 64, y: 9, s: 6, o: 0.32, d: 1.2 },
+  { x: 204, y: 97, s: 3, o: 0.26, d: 1.3 },
+  { x: 303, y: 173, s: 2, o: 0.63, d: 5.0 },
+  { x: 186, y: 38, s: 3, o: 0.22, d: 4.8 },
+  { x: 196, y: 11, s: 2, o: 0.52, d: 5.2 },
+  { x: 337, y: 59, s: 3, o: 0.55, d: 4.4 },
+  { x: 103, y: 88, s: 3, o: 0.39, d: 1.6 },
+  { x: 154, y: 89, s: 6, o: 0.39, d: 3.9 },
+  { x: 165, y: 58, s: 2, o: 0.54, d: 1.8 },
+  { x: 94, y: 147, s: 4, o: 0.2, d: 1.2 },
+  { x: 311, y: 99, s: 2, o: 0.48, d: 1.7 },
+  { x: 160, y: 170, s: 3, o: 0.21, d: 1.2 },
+  { x: 174, y: 117, s: 6, o: 0.54, d: 3.4 },
+  { x: 64, y: 72, s: 2, o: 0.59, d: 3.8 },
+  { x: 103, y: 55, s: 5, o: 0.23, d: 5.9 },
+  { x: 81, y: 125, s: 2, o: 0.4, d: 4.7 },
+  { x: 146, y: 99, s: 8, o: 0.47, d: 0.2 },
+  { x: 61, y: 128, s: 3, o: 0.55, d: 3.6 },
+  { x: 258, y: 10, s: 4, o: 0.39, d: 4.7 },
+  { x: 244, y: 93, s: 3, o: 0.16, d: 2.3 },
+  { x: 148, y: 118, s: 3, o: 0.65, d: 0.8 },
+  { x: 294, y: 161, s: 2, o: 0.61, d: 5.3 },
+  { x: 102, y: 80, s: 3, o: 0.43, d: 3.4 },
+  { x: 266, y: 138, s: 6, o: 0.26, d: 1.2 },
+  { x: 318, y: 122, s: 4, o: 0.51, d: 2.8 },
+  { x: 72, y: 99, s: 2, o: 0.41, d: 2.1 },
 ];
+const HERO_C_POINTS: [number, number][] = [[108,84], [204,158], [95,20], [70,118], [116,46], [135,107], [167,62], [227,88], [287,160], [134,78], [29,18], [251,167]];
+const HERO_C_LINES: [number, number, number, number][] = [[108,84,134,78], [108,84,116,46], [204,158,251,167], [204,158,287,160], [95,20,116,46], [95,20,29,18], [70,118,108,84], [70,118,135,107], [116,46,108,84], [116,46,95,20], [135,107,134,78], [135,107,108,84], [167,62,134,78], [167,62,116,46], [227,88,167,62], [227,88,204,158], [287,160,251,167], [287,160,204,158], [134,78,135,107], [134,78,108,84], [29,18,95,20], [29,18,116,46], [251,167,287,160], [251,167,204,158]];
 
 type Finding = {
   key: string;
@@ -379,19 +405,53 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
               className="pointer-events-none absolute inset-0 overflow-hidden rounded-card"
             >
               <span className="lattice" />
-              {HERO_STARS.map((s, i) => (
-                <i
-                  key={i}
-                  className="absolute rounded-full bg-[#e9cf8e]"
-                  style={{
-                    left: s.x,
-                    top: s.y,
-                    width: s.s,
-                    height: s.s,
-                    opacity: s.o,
-                  }}
-                />
-              ))}
+              <svg
+                className="absolute inset-0 opacity-[0.2]"
+                width="360"
+                height="195"
+                viewBox="0 0 360 195"
+                aria-hidden="true"
+              >
+                <g stroke="#e9cf8e" strokeWidth={0.5} opacity={0.85}>
+                  {HERO_C_LINES.map(([x1, y1, x2, y2], i) => (
+                    <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} />
+                  ))}
+                </g>
+                {HERO_C_POINTS.map(([x, y], i) => (
+                  <circle key={i} cx={x} cy={y} r={1.4} fill="#e9cf8e" />
+                ))}
+              </svg>
+              {HERO_STARS.map((s, i) =>
+                s.s <= 3 ? (
+                  <i
+                    key={i}
+                    className="absolute rounded-full bg-[#e9cf8e] motion-safe:animate-[ml-twinkle_5s_ease-in-out_infinite_alternate]"
+                    style={{
+                      left: s.x,
+                      top: s.y,
+                      width: s.s,
+                      height: s.s,
+                      opacity: s.o,
+                      animationDelay: `${s.d}s`,
+                    }}
+                  />
+                ) : (
+                  <svg
+                    key={i}
+                    className="absolute motion-safe:animate-[ml-twinkle_5s_ease-in-out_infinite_alternate]"
+                    style={{ left: s.x, top: s.y, opacity: s.o, animationDelay: `${s.d}s` }}
+                    width={s.s * 2}
+                    height={s.s * 2}
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M12 2l2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2L12 2z"
+                      fill="#e9cf8e"
+                    />
+                  </svg>
+                )
+              )}
               <svg
                 viewBox="0 0 24 30"
                 fill="none"
