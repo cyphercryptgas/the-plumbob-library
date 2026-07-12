@@ -128,10 +128,10 @@ export function Profiles() {
           >
             ✦
           </span>
-          Coming next: each profile will remember its own set of enabled and
-          disabled mods, and switching profiles will arrange your library to
-          match — journaled and reversible, like everything else here. This
-          screen says so honestly instead of pretending it's built.
+          Each profile remembers the mods it keeps off — the active one
+          tracks your toggles live, and making another active previews
+          exactly what will move, then arranges your library to match:
+          verified renames, journaled, reversible by switching back.
         </p>
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <input

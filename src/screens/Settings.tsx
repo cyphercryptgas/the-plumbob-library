@@ -234,7 +234,7 @@ export function Settings() {
         </SectionTitle>
         <Field
           label="CurseForge API key"
-          hint="Powers the future Patch Center: mod metadata and update checks. Paste your key here — it is stored locally, never committed anywhere, and unused until Patch Center ships."
+          hint="Powers the Patch Center's update radar. Stored locally, sent only as a request header to CurseForge, and never leaves this machine otherwise."
         >
           <input
             type="password"

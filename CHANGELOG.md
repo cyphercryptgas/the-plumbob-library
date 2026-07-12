@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.1 — Truth in Copy
+
+* The Profiles screen still said its mod-sets were "coming next" two
+  releases after they shipped and were field-verified — the honesty
+  clause cut both ways and lost. It now describes what the feature
+  actually does. The Settings hint likewise stopped calling the Patch
+  Center "future" while being the very key it consumes.
+
+
 ## 0.7.0 — The Patch Center, Part One: Update Radar
 
 * **Your library, checked against CurseForge itself.** Every package and
