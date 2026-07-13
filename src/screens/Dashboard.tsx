@@ -160,9 +160,14 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
         );
         return;
       }
-      const summary = plan.groups
+      const top = plan.groups
+        .slice(0, 6)
         .map((g) => `${g.label} (${g.files})`)
         .join(", ");
+      const summary =
+        plan.groups.length > 6
+          ? `${top}, +${plan.groups.length - 6} more groups`
+          : top;
       if (
         !window.confirm(
           `Auto-merge ${plan.totalFiles.toLocaleString()} packages into ${plan.groups.length} merged files by category — ${summary}.\n\nSkipped on purpose: ${plan.skippedMatched.toLocaleString()} CurseForge-matched (they'd lose updates), ${plan.skippedDisabled.toLocaleString()} disabled${plan.skippedUnreadable > 0 ? `, and ${plan.skippedUnreadable.toLocaleString()} with entries our pipeline can't decode (e.g. ${plan.unreadableNames.slice(0, 2).join(", ")}) — those stay loose and keep working in-game` : ""}.\n\nOriginals are backed up first, then removed. Proceed?`

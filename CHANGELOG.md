@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.27.4 — Creator-First Merging
+
+* **The planner and the executor stopped contradicting each other**: a
+  200-package guard written before auto-merge existed was refusing the
+  planner's own 400-file groups. The ceiling is 500 per output now,
+  comfortably above anything the planner builds.
+* **Groups follow creators now.** Files that share a creator merge
+  together — Merged_VIBRANTPIXELS, coherent kits kept whole — and only
+  creatorless files fall back to category buckets. Expect many small,
+  meaningful merged files instead of a few giants; the confirm dialog
+  summarizes the largest groups and counts the rest.
+
+
 ## 0.27.3 — The Thumbnail Cap Confession
 
 * **The merge blocker was never exotic compression — it was a size cap.**

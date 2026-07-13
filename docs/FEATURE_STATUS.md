@@ -2,7 +2,7 @@
 
 Statuses: **Complete** · **Partial** · **Planned** · **Unscheduled**
 
-Updated: v0.27.3 — every planned surface shipped. This file is refreshed at
+Updated: v0.27.4 — every planned surface shipped. This file is refreshed at
 the end of each release; `CHANGELOG.md` carries the narrative.
 
 ## Safety core

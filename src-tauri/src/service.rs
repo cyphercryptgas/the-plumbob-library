@@ -2173,8 +2173,8 @@ pub fn merge_files(
     if file_ids.len() < 2 {
         return Err("Pick at least two packages to merge.".to_string());
     }
-    if file_ids.len() > 200 {
-        return Err("Merging more than 200 packages at once isn't supported yet.".to_string());
+    if file_ids.len() > 500 {
+        return Err("Merging more than 500 packages in one output isn't supported.".to_string());
     }
     let mut picked: Vec<(i64, String, String)> = Vec::new();
     {
@@ -2408,20 +2408,31 @@ pub fn plan_auto_merge(dbm: &Mutex<Database>) -> UiResult<AutoMergePlan> {
     };
     const MAX_FILES: usize = 400;
     const MAX_BYTES: i64 = 1_200_000_000;
-    let label_of = |c: &Option<String>| match c.as_deref() {
+    let cat_label = |c: &Option<String>| match c.as_deref() {
         Some("cas") => "CAS",
         Some("buildbuy") => "BuildBuy",
         Some("animations") => "Poses",
         Some("gameplay") => "Gameplay",
         _ => "Other",
     };
-    let mut buckets: std::collections::BTreeMap<&str, Vec<(i64, i64)>> = Default::default();
+    // Creator-first grouping: files that share a creator merge together;
+    // only the creatorless fall back to category buckets.
+    let mut buckets: std::collections::BTreeMap<String, Vec<(i64, i64)>> = Default::default();
     let mut skipped_unreadable = 0usize;
     let mut unreadable_names: Vec<String> = Vec::new();
-    for (id, cat, size, abs) in &survey.eligible {
+    for (id, cat, size, abs, creator, display) in &survey.eligible {
         let path = std::path::Path::new(abs);
         match plumbob_core::dbpf::package_fully_readable(path) {
-            Ok(true) => buckets.entry(label_of(cat)).or_default().push((*id, *size)),
+            Ok(true) => {
+                let label = match (creator, display) {
+                    (Some(c), _) if !c.is_empty() => display
+                        .clone()
+                        .filter(|d| !d.is_empty())
+                        .unwrap_or_else(|| c.clone()),
+                    _ => cat_label(cat).to_string(),
+                };
+                buckets.entry(label).or_default().push((*id, *size));
+            }
             _ => {
                 skipped_unreadable += 1;
                 if unreadable_names.len() < 5 {
