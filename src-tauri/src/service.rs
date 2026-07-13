@@ -1993,7 +1993,7 @@ pub fn apply_update(dbm: &Mutex<Database>, data_dir: &Path, file_id: i64) -> UiR
         ops::create_snapshot(
             &roots.mods,
             &roots.backups,
-            &[relative.clone()],
+            &[std::path::PathBuf::from(&relative)],
             &format!("Automatic backup before update ({latest_file_name})"),
             &mut journal,
         )

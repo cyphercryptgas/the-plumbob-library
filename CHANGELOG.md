@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.23.1 — Type Discipline
+
+* Fixed the shell compile error the Windows installer caught: the
+  update pass handed the snapshot machinery a `String` path where it
+  demands `PathBuf`. The container can't compile the shell (no webkit),
+  so the installer is the trial — and it did its job.
+
 ## 0.23.0 — The Updater
 
 * **One-click Update in the Patch Center.** For matches whose latest
