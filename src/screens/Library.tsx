@@ -316,7 +316,7 @@ export function Library(props: {
                         .mergeFiles(pkgIds)
                         .then((out) => {
                           setMergeNote(
-                            `Merged ${out.stats.sources} packages → ${out.mergedName} (${out.stats.resourcesOut.toLocaleString()} resources${out.stats.collisions > 0 ? `, ${out.stats.collisions} load-order collisions resolved` : ""}). Run a Scan to see it in the Library.`
+                            `Merged ${out.stats.sources} packages → ${out.mergedName} (${out.stats.resourcesOut.toLocaleString()} resources${out.stats.collisions > 0 ? `, ${out.stats.collisions} load-order collisions resolved` : ""}${out.skipped.length > 0 ? `; ${out.skipped.length} left loose — undecodable entries: ${out.skipped.slice(0, 3).join(", ")}` : ""}). Run a Scan to see it in the Library.`
                           );
                           setSelected(new Set());
                           setRowsEpoch((e) => e + 1);

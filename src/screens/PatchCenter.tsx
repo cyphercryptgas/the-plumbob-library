@@ -465,6 +465,17 @@ export function PatchCenter(props: { onOpenInLibrary: (q: string) => void; onNav
                   key={r.fileId}
                   className="flex items-center gap-3 border-b border-gold/25 px-2 py-2.5 last:border-0"
                 >
+                  {thumbs[r.fileId] ? (
+                    <img
+                      src={thumbs[r.fileId]}
+                      alt=""
+                      className="h-9 w-9 shrink-0 rounded-lg border border-gold/40 object-cover"
+                    />
+                  ) : (
+                    <span className="icon-chip flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
+                      <Icon name="package" size={16} />
+                    </span>
+                  )}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm text-ink">
                       {r.modName}

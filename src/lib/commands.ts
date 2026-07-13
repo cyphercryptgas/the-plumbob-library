@@ -259,6 +259,7 @@ export interface MergeStats {
 export interface MergeOutcome {
   mergedName: string;
   stats: MergeStats;
+  skipped: string[];
 }
 
 export const mergeFiles = (fileIds: number[], label?: string) =>
@@ -276,6 +277,8 @@ export interface AutoMergePlan {
   totalFiles: number;
   skippedMatched: number;
   skippedDisabled: number;
+  skippedUnreadable: number;
+  unreadableNames: string[];
 }
 
 export const planAutoMerge = () => call<AutoMergePlan>("plan_auto_merge");

@@ -656,6 +656,18 @@ pub fn read_casp_payload(path: &Path) -> Result<Option<Vec<u8>>, DbpfError> {
     Ok(None)
 }
 
+/// Can every entry in this package pass through our decompress-everything
+/// merge pipeline? Entries in schemes we don't decode (EA's RefPack and
+/// friends) are fine in-game but can't be merged faithfully — those
+/// packages stay loose.
+pub fn package_fully_readable(path: &Path) -> Result<bool, DbpfError> {
+    let index = read_package_index(path)?;
+    Ok(index
+        .entries
+        .iter()
+        .all(|e| e.compression == 0 || e.compression == COMP_ZLIB))
+}
+
 /// Merge statistics — the receipt a merge owes its user.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1046,6 +1058,17 @@ mod thumb_tests {
             _ => unreachable!(),
         }
         out
+    }
+
+    #[test]
+    fn unreadable_compression_flags_package_not_mergeable() {
+        let z = zlib(b"fine");
+        let good = build_package(&[(0x1111, 0x5A42, &z, 4)]);
+        let bad = build_package(&[(0x00B2_D882, 0xFFFF, b"refpack-ish", 11)]);
+        let (_d1, p1) = write_tmp(&good);
+        let (_d2, p2) = write_tmp(&bad);
+        assert!(package_fully_readable(&p1).unwrap());
+        assert!(!package_fully_readable(&p2).unwrap());
     }
 
     #[test]

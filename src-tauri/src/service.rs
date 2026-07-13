@@ -2155,6 +2155,9 @@ pub fn apply_update(dbm: &Mutex<Database>, data_dir: &Path, file_id: i64) -> UiR
 pub struct MergeOutcome {
     pub merged_name: String,
     pub stats: plumbob_core::dbpf::MergeStats,
+    /// Files left loose because entries can't pass the decompress-everything
+    /// pipeline — they still work in-game.
+    pub skipped: Vec<String>,
 }
 
 /// Merge selected packages into one, in game load order, with the
@@ -2193,6 +2196,29 @@ pub fn merge_files(
     // Game load order: case-insensitive by relative path — the merged
     // winner must be the same resource the game already uses.
     picked.sort_by_key(|(_, _, rel)| rel.to_lowercase());
+    let mut skipped: Vec<String> = Vec::new();
+    picked.retain(|(_, abs, _)| {
+        match plumbob_core::dbpf::package_fully_readable(std::path::Path::new(abs)) {
+            Ok(true) => true,
+            _ => {
+                skipped.push(
+                    std::path::Path::new(abs)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| abs.clone()),
+                );
+                false
+            }
+        }
+    });
+    if picked.len() < 2 {
+        return Err(format!(
+            "After setting aside {} package(s) our pipeline can't fully decode \
+             ({}), fewer than two remain — nothing merged.",
+            skipped.len(),
+            skipped.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+        ));
+    }
 
     let (roots_mods_base, snapshot_label) = {
         let mut guard = lock_db(dbm)?;
@@ -2259,7 +2285,11 @@ pub fn merge_files(
             db::files::mark_removed(guard.conn(), *id).map_err(err_str)?;
         }
     }
-    Ok(MergeOutcome { merged_name, stats })
+    Ok(MergeOutcome {
+        merged_name,
+        stats,
+        skipped,
+    })
 }
 
 /// Self-healing for the Backups page: any snapshot folder on disk whose
@@ -2319,6 +2349,10 @@ pub struct AutoMergePlan {
     pub total_files: usize,
     pub skipped_matched: i64,
     pub skipped_disabled: i64,
+    /// Packages with entries our pipeline can't decode (RefPack and
+    /// friends) — they work in-game and stay loose.
+    pub skipped_unreadable: usize,
+    pub unreadable_names: Vec<String>,
 }
 
 /// Plan the efficient merge: enabled, unmatched packages, bucketed by
@@ -2340,8 +2374,23 @@ pub fn plan_auto_merge(dbm: &Mutex<Database>) -> UiResult<AutoMergePlan> {
         _ => "Other",
     };
     let mut buckets: std::collections::BTreeMap<&str, Vec<(i64, i64)>> = Default::default();
-    for (id, cat, size) in &survey.eligible {
-        buckets.entry(label_of(cat)).or_default().push((*id, *size));
+    let mut skipped_unreadable = 0usize;
+    let mut unreadable_names: Vec<String> = Vec::new();
+    for (id, cat, size, abs) in &survey.eligible {
+        let path = std::path::Path::new(abs);
+        match plumbob_core::dbpf::package_fully_readable(path) {
+            Ok(true) => buckets.entry(label_of(cat)).or_default().push((*id, *size)),
+            _ => {
+                skipped_unreadable += 1;
+                if unreadable_names.len() < 5 {
+                    unreadable_names.push(
+                        path.file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| abs.clone()),
+                    );
+                }
+            }
+        }
     }
     let mut groups = Vec::new();
     let mut total_files = 0usize;
@@ -2384,5 +2433,7 @@ pub fn plan_auto_merge(dbm: &Mutex<Database>) -> UiResult<AutoMergePlan> {
         total_files,
         skipped_matched: survey.skipped_matched,
         skipped_disabled: survey.skipped_disabled,
+        skipped_unreadable,
+        unreadable_names,
     })
 }

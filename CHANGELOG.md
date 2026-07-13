@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.27.2 — The Missing Element & the Stubborn Package
+
+* **Up-to-date rows finally show images — because the row never had an
+  image element.** The thumbnail budget fix in 0.27.1 was real but
+  beside the point: this row family was born without an <img>. It wears
+  the same thumbnail-or-chip block as every other row now.
+* **Auto-merge survives stubborn packages.** The field found one: a
+  package whose entries use a compression scheme our decompress-
+  everything pipeline doesn't decode (EA's RefPack family). Aborting
+  that merge was correct — nothing partial is ever written — but
+  blocking a whole category group for one file was not. Both merge
+  paths now pre-flight every package: undecodable ones stay loose
+  (they work fine in-game), are named in the plan dialog and the
+  receipt, and the rest merge normally.
+
+
 ## 0.27.1 — Emblems & the Starved Thumbnails
 
 * **Quick actions wear their purposes**: three new icons drawn for the
