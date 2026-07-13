@@ -65,6 +65,7 @@ fn main() {
             commands::prepare_thumbnails,
             commands::thumbnail_census,
             commands::creators_overview,
+            commands::reverify_matches,
             commands::list_quarantine,
             commands::list_backups,
             commands::list_backup_entries,

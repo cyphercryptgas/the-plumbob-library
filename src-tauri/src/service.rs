@@ -1805,3 +1805,112 @@ pub fn classify_creators(dbm: &Mutex<Database>) -> UiResult<usize> {
     }
     Ok(done)
 }
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ReverifyOutcome {
+    pub examined: usize,
+    pub kept: usize,
+    pub boosted: usize,
+    pub dropped: usize,
+}
+
+/// The final pass: re-judge every cached name-match under the attributed
+/// standards. Mods are re-fetched in bulk (authors weren't cached);
+/// verdicts keep (confidence refreshed), boost (author-confirmed), or
+/// drop (rows deleted, lookup nulled so a future Check may re-search).
+pub fn reverify_matches(app: &AppHandle, dbm: &Mutex<Database>) -> UiResult<ReverifyOutcome> {
+    let (key, lookups) = {
+        let guard = lock_db(dbm)?;
+        let settings = db::settings::load(guard.conn()).map_err(err_str)?;
+        let key = settings
+            .curseforge_api_key
+            .filter(|k| !k.trim().is_empty())
+            .ok_or_else(|| {
+                "No CurseForge API key yet — paste one in Settings → \
+                 Connections and try again."
+                    .to_string()
+            })?;
+        let lookups = db::curse::name_lookup_rows(guard.conn()).map_err(err_str)?;
+        (key, lookups)
+    };
+    if lookups.is_empty() {
+        return Ok(ReverifyOutcome { examined: 0, kept: 0, boosted: 0, dropped: 0 });
+    }
+    let client = crate::curse_api::CurseClient::new(&key)?;
+    let mut ids: Vec<i64> = lookups.iter().map(|(_, id, _)| *id).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    let mut mods: std::collections::HashMap<i64, crate::curse_api::CurseMod> =
+        std::collections::HashMap::new();
+    for chunk in ids.chunks(50) {
+        for m in client.get_mods(chunk)? {
+            mods.insert(m.id, m);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+
+    // The same term construction the Check uses, so cached terms line up.
+    let eligible_rows = {
+        let guard = lock_db(dbm)?;
+        db::curse::eligible_files(guard.conn()).map_err(err_str)?
+    };
+    let mut term_files: std::collections::HashMap<String, Vec<i64>> = Default::default();
+    let mut term_creator: std::collections::HashMap<String, String> = Default::default();
+    for f in &eligible_rows {
+        if let Some(term) = plumbob_core::curse::search_term_with_creator(
+            &f.file_name,
+            f.creator_display.as_deref(),
+        ) {
+            term_files.entry(term.clone()).or_default().push(f.id);
+            if let Some(key) = f.creator.as_deref().filter(|c| !c.is_empty()) {
+                term_creator.entry(term).or_insert_with(|| key.to_string());
+            }
+        }
+    }
+
+    let total = lookups.len();
+    let mut out = ReverifyOutcome { examined: total, kept: 0, boosted: 0, dropped: 0 };
+    for (i, (term, mod_id, old_conf)) in lookups.iter().enumerate() {
+        let files: &[i64] = term_files.get(term).map(|v| v.as_slice()).unwrap_or(&[]);
+        let verdict = mods.get(mod_id).and_then(|m| {
+            let authors: Vec<String> = m.authors.iter().map(|a| a.name.clone()).collect();
+            plumbob_core::curse::accept_name_match_attributed(
+                term,
+                &m.name,
+                &authors,
+                term_creator.get(term).map(String::as_str),
+            )
+        });
+        let guard = lock_db(dbm)?;
+        match verdict {
+            Some(conf) => {
+                let mod_name = mods.get(mod_id).map(|m| m.name.as_str()).unwrap_or("");
+                db::curse::upsert_lookup(
+                    guard.conn(),
+                    term,
+                    Some(*mod_id),
+                    Some(mod_name),
+                    Some(f64::from(conf)),
+                )
+                .map_err(err_str)?;
+                db::curse::update_name_confidence(guard.conn(), files, *mod_id, f64::from(conf))
+                    .map_err(err_str)?;
+                out.kept += 1;
+                if f64::from(conf) > old_conf.unwrap_or(0.0) + 0.01 {
+                    out.boosted += 1;
+                }
+            }
+            None => {
+                db::curse::delete_name_matches(guard.conn(), files, *mod_id).map_err(err_str)?;
+                db::curse::null_lookup(guard.conn(), term).map_err(err_str)?;
+                out.dropped += 1;
+            }
+        }
+        drop(guard);
+        if i % 20 == 0 || i + 1 == total {
+            emit_patch(app, "Re-verifying matches", i + 1, total);
+        }
+    }
+    Ok(out)
+}

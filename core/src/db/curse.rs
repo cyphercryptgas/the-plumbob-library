@@ -174,6 +174,54 @@ pub fn status(conn: &Connection) -> Result<Vec<CurseStatusRow>, DbError> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reverify_mutations_scope_to_the_terms_files() {
+        let mut db = crate::db::Database::open_in_memory().unwrap();
+        let r = vec![
+            seed(&db, "a1.package", "package"),
+            seed(&db, "a2.package", "package"),
+            seed(&db, "b1.package", "package"),
+        ];
+        // Two terms, same mod, different files: term A owns files 0+1,
+        // term B owns file 2.
+        upsert_lookup(db.conn(), "term a", Some(77), Some("Shared Mod"), Some(0.6)).unwrap();
+        upsert_lookup(db.conn(), "term b", Some(77), Some("Shared Mod"), Some(0.6)).unwrap();
+        let mk = |fid| MatchRecord {
+            file_id: fid,
+            curse_mod_id: 77,
+            curse_file_id: None,
+            mod_name: "Shared Mod".into(),
+            website_url: None,
+            matched_file_name: None,
+            matched_file_date: None,
+            latest_file_id: 5,
+            latest_file_name: "x".into(),
+            latest_file_date: "2026-01-01T00:00:00Z".into(),
+            update_available: false,
+            match_kind: "name",
+            confidence: Some(0.6),
+        };
+        replace_matches(db.conn_mut(), &[mk(r[0]), mk(r[1]), mk(r[2])]).unwrap();
+        update_name_confidence(db.conn(), &[r[0], r[1]], 77, 0.9).unwrap();
+        let deleted = delete_name_matches(db.conn(), &[r[2]], 77).unwrap();
+        assert_eq!(deleted, 1, "only term B's file dropped");
+        null_lookup(db.conn(), "term b").unwrap();
+        let lookups = name_lookup_rows(db.conn()).unwrap();
+        assert_eq!(lookups.len(), 1, "term b cleared for future re-search");
+        assert_eq!(lookups[0].0, "term a");
+        let confs: Vec<Option<f64>> = {
+            let mut stmt = db
+                .conn()
+                .prepare("SELECT confidence FROM curse_matches ORDER BY file_id")
+                .unwrap();
+            stmt.query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        };
+        assert_eq!(confs, vec![Some(0.9), Some(0.9)], "term A boosted, intact");
+    }
+
     use super::*;
     use crate::db::Database;
 
@@ -312,4 +360,81 @@ pub fn eligible_files(conn: &Connection) -> Result<Vec<EligibleFile>, DbError> {
         })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
+}
+
+/// Every cached name-lookup that currently points at a mod — the
+/// population the re-verify pass judges.
+pub fn name_lookup_rows(
+    conn: &Connection,
+) -> Result<Vec<(String, i64, Option<f64>)>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT term, curse_mod_id, confidence FROM curse_name_lookups
+         WHERE curse_mod_id IS NOT NULL",
+    )?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+fn id_list(ids: &[i64]) -> String {
+    ids.iter()
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Remove one term's name-kind rows for one mod, scoped to that term's
+/// files — terms can share a mod, and another term's verdict is its own.
+pub fn delete_name_matches(
+    conn: &Connection,
+    file_ids: &[i64],
+    mod_id: i64,
+) -> Result<usize, DbError> {
+    if file_ids.is_empty() || file_ids.len() > 500 {
+        return Ok(0);
+    }
+    let n = conn.execute(
+        &format!(
+            "DELETE FROM curse_matches
+             WHERE match_kind = 'name' AND curse_mod_id = ?1
+               AND file_id IN ({})",
+            id_list(file_ids)
+        ),
+        params![mod_id],
+    )?;
+    Ok(n)
+}
+
+pub fn update_name_confidence(
+    conn: &Connection,
+    file_ids: &[i64],
+    mod_id: i64,
+    confidence: f64,
+) -> Result<(), DbError> {
+    if file_ids.is_empty() || file_ids.len() > 500 {
+        return Ok(());
+    }
+    conn.execute(
+        &format!(
+            "UPDATE curse_matches SET confidence = ?2
+             WHERE match_kind = 'name' AND curse_mod_id = ?1
+               AND file_id IN ({})",
+            id_list(file_ids)
+        ),
+        params![mod_id, confidence],
+    )?;
+    Ok(())
+}
+
+/// A dropped verdict clears the lookup so a future Check may re-search
+/// the term under current standards.
+pub fn null_lookup(conn: &Connection, term: &str) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE curse_name_lookups
+         SET curse_mod_id = NULL, mod_name = NULL, confidence = NULL
+         WHERE term = ?1",
+        params![term],
+    )?;
+    Ok(())
 }

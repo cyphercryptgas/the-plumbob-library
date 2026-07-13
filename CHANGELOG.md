@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.22.0 — The Final Pass
+
+* **576 on CurseForge** — and now every one of them re-judged. The new
+  **Re-verify matches** button (Patch Center, beside Check) re-fetches
+  the matched mods in bulk — authors were never cached — and runs every
+  cached name-match through the attributed standards: **kept**
+  (confidence refreshed), **author-boosted**, or **dropped** (rows
+  removed and the lookup cleared, so a future Check may re-search the
+  term under current rules). Deletion is scoped precisely to each term's
+  own files, so terms sharing a mod can't collateral-damage each other —
+  that scoping is a test. The outcome prints its arithmetic: examined,
+  kept, boosted, dropped.
+
+
 ## 0.21.0 — The Attributed Radar
 
 * **Creator data now sharpens the radar** — the honest answer to

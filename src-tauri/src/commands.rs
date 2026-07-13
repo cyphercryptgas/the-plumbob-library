@@ -644,3 +644,14 @@ pub fn creators_overview(
     let guard = service::lock_db(&state.db)?;
     db::files::creators_overview(guard.conn()).map_err(service::err_str)
 }
+
+#[tauri::command]
+pub async fn reverify_matches(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> UiResult<service::ReverifyOutcome> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || service::reverify_matches(&app, &db))
+        .await
+        .map_err(|e| e.to_string())?
+}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { getThumbnails } from "../lib/commands";
+import { getThumbnails, reverifyMatches, type ReverifyOutcome } from "../lib/commands";
 import {
   checkCurseUpdates,
   curseStatus,
@@ -27,6 +27,8 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
   const [thumbs, setThumbs] = useState<Record<number, string>>({});
   const [loaded, setLoaded] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [reverifying, setReverifying] = useState(false);
+  const [reverified, setReverified] = useState<ReverifyOutcome | null>(null);
   const [progress, setProgress] = useState<PatchProgressEvent | null>(null);
   const [summary, setSummary] = useState<PatchCheckSummary | null>(null);
   const [showCurrent, setShowCurrent] = useState(false);
@@ -66,6 +68,21 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
       openExternal(r.websiteUrl).catch(reportError);
     } else {
       reportError("CurseForge didn't provide a page for this mod.");
+    }
+  };
+
+  const reverify = async () => {
+    setReverifying(true);
+    setReverified(null);
+    try {
+      const outcome = await reverifyMatches();
+      setReverified(outcome);
+      await refresh();
+    } catch (e) {
+      reportError(e);
+    } finally {
+      setReverifying(false);
+      setProgress(null);
     }
   };
 
@@ -132,6 +149,17 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
             <Button disabled={checking} onClick={() => void check()}>
               {checking ? "Checking…" : "Check for updates"}
             </Button>
+            {rows.length > 0 ? (
+              <button
+                type="button"
+                disabled={reverifying || checking}
+                onClick={() => void reverify()}
+                title="Re-judge every cached name match under the attributed standards"
+                className="rounded-control border border-border-subtle px-3 py-1.5 text-sm text-ink-secondary transition hover:border-gold/60"
+              >
+                {reverifying ? "Re-verifying…" : "Re-verify matches"}
+              </button>
+            ) : null}
             {checkedAt ? (
               <span className="text-xs text-ink-muted">
                 Last checked {shortDate(checkedAt)}
@@ -164,6 +192,14 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
               />
             </div>
           </div>
+        ) : null}
+        {reverified ? (
+          <p className="text-xs text-ink-secondary">
+            Re-verified {reverified.examined.toLocaleString()} matches:{" "}
+            {reverified.kept.toLocaleString()} kept ·{" "}
+            {reverified.boosted.toLocaleString()} author-boosted ·{" "}
+            {reverified.dropped.toLocaleString()} dropped
+          </p>
         ) : null}
         {summary ? (
           <p className="mt-3 text-xs text-ink-muted">

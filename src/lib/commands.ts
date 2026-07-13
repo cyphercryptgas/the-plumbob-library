@@ -228,3 +228,13 @@ export interface CreatorRow {
 
 export const creatorsOverview = () =>
   call<CreatorRow[]>("creators_overview");
+
+export interface ReverifyOutcome {
+  examined: number;
+  kept: number;
+  boosted: number;
+  dropped: number;
+}
+
+export const reverifyMatches = () =>
+  call<ReverifyOutcome>("reverify_matches");
