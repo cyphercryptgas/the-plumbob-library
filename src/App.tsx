@@ -40,6 +40,7 @@ function Screen(props: {
   libSeed: { q: string; n: number };
   creatorSeed: { key: string; n: number };
   onOpenCreator: (key: string) => void;
+  onOpenInLibrary: (q: string) => void;
 }) {
   switch (props.route) {
     case "dashboard":
@@ -63,7 +64,14 @@ function Screen(props: {
     case "profiles":
       return <Profiles />;
     case "patchcenter":
-      return <PatchCenter onNavigate={props.onNavigate} />;
+      return (
+        <PatchCenter
+          onNavigate={props.onNavigate}
+          onOpenInLibrary={(q) => {
+            props.onOpenInLibrary(q);
+          }}
+        />
+      );
     case "conflicts":
       return <Conflicts />;
     case "quarantine":
@@ -85,6 +93,10 @@ function Shell() {
   const openCreator = (key: string) => {
     setCreatorSeed((s) => ({ key, n: s.n + 1 }));
     setRoute("creators");
+  };
+  const openInLibrary = (q: string) => {
+    setLibSeed((s) => ({ q, n: s.n + 1 }));
+    setRoute("library");
   };
 
   const submitSearch = () => {
@@ -173,6 +185,7 @@ function Shell() {
               libSeed={libSeed}
               creatorSeed={creatorSeed}
               onOpenCreator={openCreator}
+              onOpenInLibrary={openInLibrary}
             />
           </div>
         </div>

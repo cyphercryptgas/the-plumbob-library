@@ -308,6 +308,8 @@ pub fn list_quarantine(
 
 #[tauri::command]
 pub fn list_backups(state: State<'_, AppState>) -> UiResult<Vec<db::ops::BackupView>> {
+    // Best-effort disk backfill first — the page self-heals.
+    let _ = service::import_snapshots(&state.db, &state.data_dir);
     let guard = service::lock_db(&state.db)?;
     db::ops::list_backups(guard.conn()).map_err(service::err_str)
 }

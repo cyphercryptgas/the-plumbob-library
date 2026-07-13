@@ -742,3 +742,13 @@ mod tests {
         assert_eq!(backups[0].operation_id, Some(op.id));
     }
 }
+
+/// Is this snapshot directory already recorded?
+pub fn has_backup_at(conn: &Connection, root_path: &str) -> Result<bool, DbError> {
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM backups WHERE root_path = ?1",
+        params![root_path],
+        |r| r.get(0),
+    )?;
+    Ok(n > 0)
+}

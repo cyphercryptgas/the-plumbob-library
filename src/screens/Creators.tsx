@@ -200,6 +200,8 @@ export function Creators(props: { seed?: { key: string; n: number } }) {
   const [roster, setRoster] = useState<api.CreatorRow[] | null>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<api.CreatorRow | null>(null);
+  const [sortMode, setSortMode] = useState<"files" | "alpha">("files");
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     if (!props.seed?.key || !roster) return;
@@ -226,10 +228,17 @@ export function Creators(props: { seed?: { key: string; n: number } }) {
     };
   }, [reportError]);
 
-  const shown = (roster ?? []).filter(
-    (r) =>
-      !query || r.display.toLowerCase().includes(query.trim().toLowerCase())
-  );
+  const shown = (roster ?? [])
+    .filter(
+      (r) =>
+        !query || r.display.toLowerCase().includes(query.trim().toLowerCase())
+    )
+    .sort((a, b) =>
+      sortMode === "alpha"
+        ? a.display.localeCompare(b.display, undefined, { sensitivity: "base" })
+        : b.files - a.files || a.display.localeCompare(b.display)
+    );
+  const visible = showAll ? shown : shown.slice(0, 60);
 
   return (
     <div className="space-y-4">
@@ -248,6 +257,28 @@ export function Creators(props: { seed?: { key: string; n: number } }) {
               ? `${roster.length.toLocaleString()} creators credited`
               : "Reading the credits…"}
           </span>
+          <div className="flex gap-1">
+            {(
+              [
+                ["files", "Most files"],
+                ["alpha", "A–Z"],
+              ] as const
+            ).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={sortMode === mode}
+                onClick={() => setSortMode(mode)}
+                className={`rounded-control border px-2.5 py-1 text-xs transition ${
+                  sortMode === mode
+                    ? "border-transparent bg-accent font-medium text-ink"
+                    : "border-border-subtle text-ink-secondary hover:border-gold/60"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
         {roster && roster.length === 0 ? (
           <p className="mt-3 text-sm text-ink-secondary">
@@ -256,7 +287,7 @@ export function Creators(props: { seed?: { key: string; n: number } }) {
           </p>
         ) : (
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {shown.slice(0, 60).map((r) => (
+            {visible.map((r) => (
               <button
                 key={r.key}
                 type="button"
@@ -284,9 +315,15 @@ export function Creators(props: { seed?: { key: string; n: number } }) {
               </button>
             ))}
             {shown.length > 60 ? (
-              <span className="self-center text-xs text-ink-muted">
-                +{(shown.length - 60).toLocaleString()} more — narrow the search
-              </span>
+              <button
+                type="button"
+                onClick={() => setShowAll((v) => !v)}
+                className="self-center rounded-control border border-border-subtle px-2.5 py-1 text-xs text-ink-secondary transition hover:border-gold/60"
+              >
+                {showAll
+                  ? "Show fewer"
+                  : `Show all ${shown.length.toLocaleString()}`}
+              </button>
             ) : null}
           </div>
         )}

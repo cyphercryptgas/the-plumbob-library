@@ -2086,18 +2086,22 @@ pub fn apply_update(dbm: &Mutex<Database>, data_dir: &Path, file_id: i64) -> UiR
     }
 
     {
-        let guard = lock_db(dbm)?;
+        let mut guard = lock_db(dbm)?;
         let roots = resolve_roots(&guard, data_dir)?;
-        let mut journal = db::ops::SqliteJournal::new(guard.conn());
-        ops::create_snapshot(
-            &roots.mods,
-            &roots.backups,
-            &[std::path::PathBuf::from(&relative)],
-            &format!("Automatic backup before update ({latest_file_name})"),
-            &mut journal,
-        )
-        .map_err(err_str)?;
-        journal.finish().map_err(err_str)?;
+        let (snapshot_dir, manifest) = {
+            let mut journal = db::ops::SqliteJournal::new(guard.conn());
+            let result = ops::create_snapshot(
+                &roots.mods,
+                &roots.backups,
+                &[std::path::PathBuf::from(&relative)],
+                &format!("Automatic backup before update ({latest_file_name})"),
+                &mut journal,
+            );
+            journal.finish().map_err(err_str)?;
+            result.map_err(err_str)?
+        };
+        db::ops::record_snapshot(guard.conn_mut(), &manifest, &snapshot_dir)
+            .map_err(err_str)?;
     }
 
     let target = Path::new(&absolute);
@@ -2186,22 +2190,26 @@ pub fn merge_files(dbm: &Mutex<Database>, data_dir: &Path, file_ids: &[i64]) -> 
     picked.sort_by_key(|(_, _, rel)| rel.to_lowercase());
 
     let (roots_mods_base, snapshot_label) = {
-        let guard = lock_db(dbm)?;
+        let mut guard = lock_db(dbm)?;
         let roots = resolve_roots(&guard, data_dir)?;
         let rels: Vec<std::path::PathBuf> = picked
             .iter()
             .map(|(_, _, rel)| std::path::PathBuf::from(rel))
             .collect();
-        let mut journal = db::ops::SqliteJournal::new(guard.conn());
-        ops::create_snapshot(
-            &roots.mods,
-            &roots.backups,
-            &rels,
-            &format!("Automatic backup before merge ({} packages)", picked.len()),
-            &mut journal,
-        )
-        .map_err(err_str)?;
-        journal.finish().map_err(err_str)?;
+        let (snapshot_dir, manifest) = {
+            let mut journal = db::ops::SqliteJournal::new(guard.conn());
+            let result = ops::create_snapshot(
+                &roots.mods,
+                &roots.backups,
+                &rels,
+                &format!("Automatic backup before merge ({} packages)", picked.len()),
+                &mut journal,
+            );
+            journal.finish().map_err(err_str)?;
+            result.map_err(err_str)?
+        };
+        db::ops::record_snapshot(guard.conn_mut(), &manifest, &snapshot_dir)
+            .map_err(err_str)?;
         (roots.mods.path().to_path_buf(), format!("merge of {}", picked.len()))
     };
     let _ = snapshot_label;
@@ -2240,4 +2248,45 @@ pub fn merge_files(dbm: &Mutex<Database>, data_dir: &Path, file_ids: &[i64]) -> 
         }
     }
     Ok(MergeOutcome { merged_name, stats })
+}
+
+/// Self-healing for the Backups page: any snapshot folder on disk whose
+/// manifest the table doesn't know gets recorded. Heals the quarantine
+/// era retroactively and survives users repointing the backups folder.
+pub fn import_snapshots(dbm: &Mutex<Database>, data_dir: &Path) -> UiResult<usize> {
+    let mut guard = lock_db(dbm)?;
+    let roots = resolve_roots(&guard, data_dir)?;
+    let base = roots.backups.path().to_path_buf();
+    let mut imported = 0usize;
+    let Ok(days) = std::fs::read_dir(&base) else {
+        return Ok(0);
+    };
+    for day in days.flatten() {
+        if !day.path().is_dir() {
+            continue;
+        }
+        let Ok(ops_dirs) = std::fs::read_dir(day.path()) else {
+            continue;
+        };
+        for op in ops_dirs.flatten() {
+            let dir = op.path();
+            let manifest_path = dir.join("manifest.json");
+            if !manifest_path.is_file() {
+                continue;
+            }
+            let dir_str = dir.to_string_lossy().to_string();
+            if db::ops::has_backup_at(guard.conn(), &dir_str).map_err(err_str)? {
+                continue;
+            }
+            let Ok(raw) = std::fs::read_to_string(&manifest_path) else {
+                continue;
+            };
+            let Ok(manifest) = serde_json::from_str::<ops::SnapshotManifest>(&raw) else {
+                continue;
+            };
+            db::ops::record_snapshot(guard.conn_mut(), &manifest, &dir).map_err(err_str)?;
+            imported += 1;
+        }
+    }
+    Ok(imported)
 }

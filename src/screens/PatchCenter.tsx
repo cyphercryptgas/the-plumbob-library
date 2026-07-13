@@ -21,7 +21,7 @@ function shortDate(iso: string | null): string {
   });
 }
 
-export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
+export function PatchCenter(props: { onOpenInLibrary: (q: string) => void; onNavigate: (route: Route) => void }) {
   const { settings, reportError } = useApp();
   const [rows, setRows] = useState<CurseStatusRow[]>([]);
   const [thumbs, setThumbs] = useState<Record<number, string>>({});
@@ -31,6 +31,18 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [updateNote, setUpdateNote] = useState<string | null>(null);
   const [readyFirst, setReadyFirst] = useState(true);
+  const [listView, setListView] = useState<"updates" | "uptodate" | "matched" | "unmatched">("updates");
+
+  const LibTag = ({ name }: { name: string }) => (
+    <button
+      type="button"
+      onClick={() => props.onOpenInLibrary(name)}
+      title="Find this file in the Library to reveal or manage it"
+      className="raised-pill shrink-0 rounded-full bg-gold/15 px-2 py-0.5 text-[10px] font-bold tracking-wide text-[#7a5f2a]"
+    >
+      LIB
+    </button>
+  );
 
   const actionable = (r: CurseStatusRow) =>
     r.allowDistribution !== false &&
@@ -136,7 +148,7 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
   const checkedAt = rows.find((r) => r.checkedAt)?.checkedAt ?? null;
 
   useEffect(() => {
-    const ids = rows.map((r) => r.fileId).slice(0, 200);
+    const ids = rows.map((r) => r.fileId).slice(0, 400);
     const missing = ids.filter((id) => !(id in thumbs));
     if (missing.length === 0) return;
     let alive = true;
@@ -287,14 +299,19 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
       {loaded && checkedAt ? (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           {[
-            { label: "Updates", value: updates.length, tone: "warn" },
-            { label: "Up to date", value: current.length, tone: "ok" },
-            { label: "On CurseForge", value: updates.length + current.length, tone: "ok" },
-            { label: "Not on CurseForge", value: unknown.length, tone: "muted" },
+            { label: "Updates", value: updates.length, tone: "warn", view: "updates" as const },
+            { label: "Up to date", value: current.length, tone: "ok", view: "uptodate" as const },
+            { label: "On CurseForge", value: updates.length + current.length, tone: "ok", view: "matched" as const },
+            { label: "Not on CurseForge", value: unknown.length, tone: "muted", view: "unmatched" as const },
           ].map((s) => (
-            <div
+            <button
+              type="button"
               key={s.label}
-              className="gold-edge-card rounded-card px-3 py-3 text-center"
+              onClick={() => setListView(s.view)}
+              title="Show these files below"
+              className={`gold-edge-card rounded-card px-3 py-3 text-center transition ${
+                listView === s.view ? "ring-2 ring-gold/70" : "hover:ring-1 hover:ring-gold/40"
+              }`}
             >
               <div
                 className={`font-display text-[24px] font-bold leading-tight ${
@@ -308,12 +325,12 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
               <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#94875e]">
                 {s.label}
               </div>
-            </div>
+            </button>
           ))}
         </div>
       ) : null}
 
-      {updates.length > 0 ? (
+      {listView === "updates" && updates.length > 0 ? (
         <Card finials>
           <div className="flex items-center justify-between gap-3">
             <SectionTitle>Updates available</SectionTitle>
@@ -371,6 +388,7 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
                   </Pill>
                 ) : null}
                 {!r.enabled ? <Pill tone="neutral">off</Pill> : null}
+                <LibTag name={r.currentFilename} />
                 {r.allowDistribution === false ? (
                   <Button
                     disabled
@@ -416,7 +434,7 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
         </Card>
       ) : null}
 
-      {loaded && checkedAt && current.length > 0 ? (
+      {listView === "uptodate" && loaded && checkedAt && current.length > 0 ? (
         <Card>
           <div className="flex items-baseline justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -445,6 +463,7 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
                       {r.currentFilename} · {shortDate(r.matchedFileDate)}
                     </span>
                   </span>
+                  <LibTag name={r.currentFilename} />
                   {r.websiteUrl ? (
                     <Button
                       variant="quiet"
@@ -466,6 +485,69 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
               CurseForge release.
             </p>
           )}
+        </Card>
+      ) : null}
+
+      {listView === "matched" ? (
+        <Card finials>
+          <SectionTitle>On CurseForge</SectionTitle>
+          <div>
+            {[...updates, ...current].map((r) => (
+              <div
+                key={r.fileId}
+                className="flex items-center gap-3 border-b border-gold/25 px-2 py-2.5 last:border-0"
+              >
+                {thumbs[r.fileId] ? (
+                  <img src={thumbs[r.fileId]} alt="" className="h-9 w-9 shrink-0 rounded-lg border border-gold/40 object-cover" />
+                ) : (
+                  <span className="icon-chip flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
+                    <Icon name="package" size={16} />
+                  </span>
+                )}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-ink">{r.modName}</span>
+                  <span className="block truncate text-xs text-ink-muted">{r.currentFilename}</span>
+                </span>
+                {r.matchKind === "name" ? <Pill tone="neutral">≈ name</Pill> : null}
+                <LibTag name={r.currentFilename} />
+                <Button variant="quiet" onClick={() => void openMod(r)}>Open Mod</Button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+
+      {listView === "unmatched" ? (
+        <Card finials>
+          <SectionTitle>Not on CurseForge</SectionTitle>
+          <p className="mb-2 text-xs text-ink-secondary">
+            No CurseForge identity yet — hand-installed, renamed beyond
+            recognition, or hosted elsewhere. The LIB tag jumps each one to
+            the Library.
+          </p>
+          <div>
+            {unknown.slice(0, 300).map((r) => (
+              <div
+                key={r.fileId}
+                className="flex items-center gap-3 border-b border-gold/25 px-2 py-2 last:border-0"
+              >
+                {thumbs[r.fileId] ? (
+                  <img src={thumbs[r.fileId]} alt="" className="h-9 w-9 shrink-0 rounded-lg border border-gold/40 object-cover" />
+                ) : (
+                  <span className="icon-chip flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
+                    <Icon name="package" size={16} />
+                  </span>
+                )}
+                <span className="min-w-0 flex-1 truncate text-sm text-ink">{r.currentFilename}</span>
+                <LibTag name={r.currentFilename} />
+              </div>
+            ))}
+            {unknown.length > 300 ? (
+              <p className="px-2 py-2 text-xs text-ink-muted">
+                Showing 300 of {unknown.length.toLocaleString()} — search in the Library for the rest.
+              </p>
+            ) : null}
+          </div>
         </Card>
       ) : null}
 

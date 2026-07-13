@@ -9,6 +9,14 @@ import { useApp } from "../state/AppContext";
 import { Button, Card, EmptyState, Pill, TextInput , Icon } from "../components/ui";
 import { QuarantineDialog } from "../components/QuarantineDialog";
 
+const shortDate = (s: string | null) => {
+  if (!s) return null;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime())
+    ? null
+    : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+};
+
 const PAGE_SIZE = 100;
 
 const FILTERS: { key: LibraryFilter; label: string }[] = [
@@ -631,6 +639,11 @@ export function Library(props: {
                     >
                       {f.currentFilename}
                     </div>
+                    {shortDate(f.modifiedAtFs) ? (
+                      <div className="text-[10px] text-ink-muted">
+                        {shortDate(f.modifiedAtFs)}
+                      </div>
+                    ) : null}
                     <div className="flex flex-wrap gap-1">
                       {f.creatorDisplay && f.creator ? (
                         <button

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.26.0 — The Punch List
+
+* **Backups page, healed at the root.** The listing reads a `backups`
+  table that only the quarantine flow ever wrote — updates and merges
+  snapshotted real files but never recorded them, and any snapshot made
+  before recording existed was invisible forever. Now every snapshot
+  site records, **and the listing backfills from disk first**: any
+  snapshot folder whose manifest the table doesn't know gets imported
+  on the spot. Your quarantine-era backups surface retroactively; every
+  update and merge appears immediately.
+* **LIB tags everywhere in the Patch Center.** CurseForge mod names
+  don't match your filenames, so every row now carries a LIB tag that
+  jumps straight to that file in the Library — reveal, disable, or
+  manage from there.
+* **The stat tiles are buttons.** Updates, Up to date, On CurseForge,
+  Not on CurseForge — click any tile and the list below shows exactly
+  those files, including the never-before-visible "not on CurseForge"
+  population, each row wearing its LIB tag.
+* **Date tags on grid tiles** — every file in the Library grid shows
+  its modified date under the name.
+* **Creators: sort toggle (Most files ⇄ A–Z) and Show all** — the
+  "+N more" dead-end is gone; expand the roster whenever you like.
+
+
 ## 0.25.0 — The Merger
 
 * **Packages merge.** Select two or more in the Library and the new
