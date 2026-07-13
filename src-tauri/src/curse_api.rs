@@ -66,6 +66,18 @@ pub struct CurseFile {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CurseFileDetail {
+    pub id: i64,
+    pub file_name: String,
+    #[serde(default)]
+    pub file_length: Option<i64>,
+    /// None when the author has disabled third-party API distribution.
+    #[serde(default)]
+    pub download_url: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CurseMod {
     pub id: i64,
     pub game_id: i64,
@@ -240,5 +252,43 @@ impl CurseClient {
             .data
             .into_iter()
             .find(|m| m.latest_files.iter().any(|f| f.file_fingerprint != 0)))
+    }
+}
+
+impl CurseClient {
+    pub fn get_file(&self, mod_id: i64, file_id: i64) -> Result<CurseFileDetail, String> {
+        let env: Envelope<CurseFileDetail> =
+            self.get(&format!("/v1/mods/{mod_id}/files/{file_id}"))?;
+        Ok(env.data)
+    }
+
+    /// Fetch the file bytes from the CDN url the API handed us. No API
+    /// key travels here — the url is pre-signed.
+    pub fn download(&self, url: &str, max_bytes: u64) -> Result<Vec<u8>, String> {
+        let resp = self
+            .http
+            .get(url)
+            .send()
+            .map_err(|e| format!("Download failed to start: {e}"))?;
+        if !resp.status().is_success() {
+            return Err(Self::friendly(resp.status()));
+        }
+        if let Some(len) = resp.content_length() {
+            if len > max_bytes {
+                return Err(format!(
+                    "That file is {len} bytes — larger than the {max_bytes}-byte safety cap."
+                ));
+            }
+        }
+        let bytes = resp
+            .bytes()
+            .map_err(|e| format!("Download interrupted: {e}"))?;
+        if bytes.is_empty() {
+            return Err("The download came back empty.".to_string());
+        }
+        if bytes.len() as u64 > max_bytes {
+            return Err("The download exceeded the safety cap.".to_string());
+        }
+        Ok(bytes.to_vec())
     }
 }

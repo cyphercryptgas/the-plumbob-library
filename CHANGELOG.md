@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.23.0 — The Updater
+
+* **One-click Update in the Patch Center.** For matches whose latest
+  release is a single file: the button downloads it, verifies the bytes
+  are what they claim (DBPF magic for packages, zip magic for scripts),
+  snapshots your current copy through the same journaled backup
+  machinery quarantine uses, then swaps atomically. Your filename is
+  kept — contents change, identity doesn't — so creator tags, categories
+  and enabled state all survive; the hash is cleared so the next scan
+  re-fingerprints honestly. Authors who disable third-party downloads,
+  and releases packaged as archives, fall back to Open Mod with the
+  reason stated plainly.
+* Post-re-verify, the radar stands at 470 real matches and 68 honest
+  updates — the list this button now acts on.
+* README rewritten to match what the app has become.
+* Fixed a cosmetic defect pixel-forensics caught: the `accent` color
+  token behind active filter chips (Library) and the selected creator
+  chip was never defined, so those fills silently rendered as nothing.
+  One config line heals all three sites.
+
+
 ## 0.22.0 — The Final Pass
 
 * **576 on CurseForge** — and now every one of them re-judged. The new

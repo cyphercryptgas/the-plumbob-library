@@ -14,6 +14,9 @@ export default {
         sidebar: "var(--background-sidebar)",
         surface: "var(--background-surface)",
         soft: "var(--background-soft)",
+        // The active-chip fill. Three call sites already used this name;
+        // pixel forensics revealed the token was never defined.
+        accent: "var(--background-sage-soft)",
         "blue-soft": "var(--background-blue-soft)",
         "sage-soft": "var(--background-sage-soft)",
         "blush-soft": "var(--background-blush-soft)",

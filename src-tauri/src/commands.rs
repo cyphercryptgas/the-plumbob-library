@@ -655,3 +655,20 @@ pub async fn reverify_matches(
         .await
         .map_err(|e| e.to_string())?
 }
+
+#[tauri::command]
+pub async fn apply_update(
+    state: State<'_, AppState>,
+    file_id: i64,
+) -> UiResult<service::UpdateOutcome> {
+    if state.scan_in_progress.load(Ordering::SeqCst) {
+        return Err("A scan is running. Let it finish before updating files.".to_string());
+    }
+    let db = state.db.clone();
+    let data_dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        service::apply_update(&db, &data_dir, file_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

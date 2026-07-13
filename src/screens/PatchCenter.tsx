@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { getThumbnails, reverifyMatches, type ReverifyOutcome } from "../lib/commands";
+import { applyUpdate, getThumbnails, reverifyMatches, type ReverifyOutcome } from "../lib/commands";
 import {
   checkCurseUpdates,
   curseStatus,
@@ -28,6 +28,7 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
   const [loaded, setLoaded] = useState(false);
   const [checking, setChecking] = useState(false);
   const [reverifying, setReverifying] = useState(false);
+  const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [reverified, setReverified] = useState<ReverifyOutcome | null>(null);
   const [progress, setProgress] = useState<PatchProgressEvent | null>(null);
   const [summary, setSummary] = useState<PatchCheckSummary | null>(null);
@@ -68,6 +69,18 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
       openExternal(r.websiteUrl).catch(reportError);
     } else {
       reportError("CurseForge didn't provide a page for this mod.");
+    }
+  };
+
+  const update = async (fileId: number) => {
+    setUpdatingId(fileId);
+    try {
+      await applyUpdate(fileId);
+      await refresh();
+    } catch (e) {
+      reportError(e);
+    } finally {
+      setUpdatingId(null);
     }
   };
 
@@ -323,6 +336,23 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
                   </Pill>
                 ) : null}
                 {!r.enabled ? <Pill tone="neutral">off</Pill> : null}
+                {/\.(package|ts4script)$/i.test(r.latestFileName ?? "") ? (
+                  <Button
+                    disabled={updatingId !== null}
+                    title="Download the latest release, back up your copy, and swap it in"
+                    onClick={() => void update(r.fileId)}
+                  >
+                    {updatingId === r.fileId ? "Updating…" : "Update"}
+                  </Button>
+                ) : (
+                  <Button
+                    disabled
+                    variant="quiet"
+                    title="The latest release is an archive — Open Mod to fetch it yourself"
+                  >
+                    Update
+                  </Button>
+                )}
                 <Button
                   variant="quiet"
                   title="Opens in the CurseForge app when installed, otherwise the website."

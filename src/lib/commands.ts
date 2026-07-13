@@ -238,3 +238,12 @@ export interface ReverifyOutcome {
 
 export const reverifyMatches = () =>
   call<ReverifyOutcome>("reverify_matches");
+
+export interface UpdateOutcome {
+  fileId: number;
+  bytes: number;
+  fileName: string;
+}
+
+export const applyUpdate = (fileId: number) =>
+  call<UpdateOutcome>("apply_update", { fileId });

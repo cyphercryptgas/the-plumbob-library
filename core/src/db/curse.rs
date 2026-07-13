@@ -438,3 +438,41 @@ pub fn null_lookup(conn: &Connection, term: &str) -> Result<(), DbError> {
     )?;
     Ok(())
 }
+
+/// The stored match for one file — what the updater needs to act.
+pub fn match_for_file(
+    conn: &Connection,
+    file_id: i64,
+) -> Result<Option<(i64, i64, String, String, bool)>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT curse_mod_id, latest_file_id, latest_file_name,
+                latest_file_date, update_available
+         FROM curse_matches WHERE file_id = ?1",
+    )?;
+    let row = stmt
+        .query_map(params![file_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })?
+        .next()
+        .transpose()?;
+    Ok(row)
+}
+
+/// After a successful swap: the installed copy IS the latest now, the
+/// hash is stale (next scan re-fingerprints), and the update flag clears.
+pub fn mark_updated(conn: &Connection, file_id: i64) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE curse_matches
+         SET matched_file_name = latest_file_name,
+             matched_file_date = latest_file_date,
+             curse_file_id = latest_file_id,
+             update_available = 0
+         WHERE file_id = ?1",
+        params![file_id],
+    )?;
+    conn.execute(
+        "UPDATE files SET sha256 = NULL WHERE id = ?1",
+        params![file_id],
+    )?;
+    Ok(())
+}

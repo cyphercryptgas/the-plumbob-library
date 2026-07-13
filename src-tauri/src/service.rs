@@ -1914,3 +1914,108 @@ pub fn reverify_matches(app: &AppHandle, dbm: &Mutex<Database>) -> UiResult<Reve
     }
     Ok(out)
 }
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateOutcome {
+    pub file_id: i64,
+    pub bytes: usize,
+    pub file_name: String,
+}
+
+/// Apply one update: download the latest release, verify it looks like
+/// what it claims to be, snapshot the current copy through the same
+/// journaled backup machinery quarantine uses, then swap atomically.
+/// The old filename is kept — contents change, identity doesn't — so
+/// every attribution and setting on the row survives. The next scan
+/// re-fingerprints (the hash is cleared on purpose).
+pub fn apply_update(dbm: &Mutex<Database>, data_dir: &Path, file_id: i64) -> UiResult<UpdateOutcome> {
+    let (key, paths, m) = {
+        let guard = lock_db(dbm)?;
+        let settings = db::settings::load(guard.conn()).map_err(err_str)?;
+        let key = settings
+            .curseforge_api_key
+            .filter(|k| !k.trim().is_empty())
+            .ok_or_else(|| {
+                "No CurseForge API key yet — paste one in Settings → \
+                 Connections and try again."
+                    .to_string()
+            })?;
+        let paths = db::files::file_paths(guard.conn(), file_id)
+            .map_err(err_str)?
+            .ok_or_else(|| "That file is no longer in the library.".to_string())?;
+        let m = db::curse::match_for_file(guard.conn(), file_id)
+            .map_err(err_str)?
+            .ok_or_else(|| "No CurseForge match recorded for that file.".to_string())?;
+        (key, paths, m)
+    };
+    let (absolute, relative, _name) = paths;
+    let (mod_id, latest_file_id, latest_file_name, _latest_date, update_available) = m;
+    if !update_available {
+        return Err("That file is already up to date.".to_string());
+    }
+    let lower = latest_file_name.to_lowercase();
+    let expects_package = lower.ends_with(".package");
+    let expects_script = lower.ends_with(".ts4script");
+    if !(expects_package || expects_script) {
+        return Err(format!(
+            "The latest release is packaged as \"{latest_file_name}\" — an archive \
+             rather than a single file. Open Mod to fetch it yourself; \
+             archive-aware updating is on the roadmap."
+        ));
+    }
+
+    let client = crate::curse_api::CurseClient::new(&key)?;
+    let detail = client.get_file(mod_id, latest_file_id)?;
+    let url = detail.download_url.ok_or_else(|| {
+        "This author hasn't enabled third-party downloads on CurseForge — \
+         use Open Mod to update by hand."
+            .to_string()
+    })?;
+    let bytes = client.download(&url, 500 * 1024 * 1024)?;
+    let looks_right = if expects_package {
+        bytes.len() >= 4 && &bytes[..4] == b"DBPF"
+    } else {
+        bytes.len() >= 4 && &bytes[..4] == b"PK\x03\x04"
+    };
+    if !looks_right {
+        return Err(
+            "The downloaded bytes don't look like the file type they claim — \
+             nothing was changed."
+                .to_string(),
+        );
+    }
+
+    {
+        let guard = lock_db(dbm)?;
+        let roots = resolve_roots(&guard, data_dir)?;
+        let mut journal = db::ops::SqliteJournal::new(guard.conn());
+        ops::create_snapshot(
+            &roots.mods,
+            &roots.backups,
+            &[relative.clone()],
+            &format!("Automatic backup before update ({latest_file_name})"),
+            &mut journal,
+        )
+        .map_err(err_str)?;
+        journal.finish().map_err(err_str)?;
+    }
+
+    let target = Path::new(&absolute);
+    let tmp = target.with_extension("mmnew");
+    std::fs::write(&tmp, &bytes).map_err(|e| format!("Could not stage the new file: {e}"))?;
+    std::fs::rename(&tmp, target).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Could not swap the file into place: {e}")
+    })?;
+
+    {
+        let guard = lock_db(dbm)?;
+        db::curse::mark_updated(guard.conn(), file_id).map_err(err_str)?;
+    }
+    Ok(UpdateOutcome {
+        file_id,
+        bytes: bytes.len(),
+        file_name: latest_file_name,
+    })
+}

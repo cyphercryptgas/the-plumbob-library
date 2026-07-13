@@ -1,103 +1,60 @@
 # Motherlode Manager
 
-*Formerly The Plumbob Library — renamed in v0.2.0. All data, internals, and
-the on-disk identity (`com.moetech.plumbob`) are unchanged; existing
-libraries carry over untouched.*
+A safety-first Sims 4 mod manager for Windows. It inventories your Mods
+folder, understands what's inside every package, and never destroys
+anything — every risky action is backed up and journaled before it runs.
 
-**Your mods. Organized. Precious.** — a safety-first manager for Sims 4
-mods and custom content.
+## What it does
 
-A Windows-first desktop application (Tauri 2 + Rust + React/TypeScript +
-SQLite) for scanning, inventorying, organizing, quarantining,
-troubleshooting, and updating large Sims 4 Mods folders — built
-safety-first: every mutation is planned, previewed, hash-verified,
-journaled, and reversible.
+**Library.** Every file, scanned and reconciled: search, categories
+(CAS, Build/Buy, Poses, Gameplay, Scripts), CAS subcategories read by a
+reference-exact CASP parser (Hair, Tops, Shoes, …), sort by name or file
+date, list or thumbnail grid. Enable/disable without moving files.
 
-*Motherlode Manager is an independent community tool and is not affiliated
-with or endorsed by Electronic Arts, Maxis, The Sims, Overwolf, CurseForge,
-or individual mod creators.*
+**Thumbnails.** Extracted straight from the packages: PNG, JPEG, DDS
+(DXT1/3/5, BC1/BC3, uncompressed), and EA's shuffled DST — decoded per
+the s4pi reference. Census-driven: a Diagnose card names exactly what
+the imageless packages contain, so decoding grows on evidence.
 
-## Current status — v0.7.1: every planned surface shipped
+**Creators.** Bylines read from filename conventions — bracketed leads
+always credit, underscore prefixes credit on a creator signature or
+frequency promotion. A roster screen with per-creator galleries; gold
+creator pills on every credited file.
 
-Honest state, matching `docs/FEATURE_STATUS.md` and `CHANGELOG.md`. The
-sidebar's PLANNED section renders nothing for the first time. **160 core
-tests on Linux + Windows CI**; `release.yml` builds an NSIS Windows
-installer on every push to `main`, validated in daily use on a real
-4,200-file, 19 GB library.
+**Duplicate Center.** Exact duplicates by content hash, with safe
+one-click cleanup (quarantine, never delete).
 
-**The safety core** (Phases 1–2): containment-gated scanning with content
-fingerprints, a read-only DBPF package index with a content-keyed
-incremental parse pass, duplicate detection, a Conflicts screen
-implementing a researched noise policy, verified quarantine and restore,
-all-or-nothing snapshots, the operations journal, migrations, and startup
-reconciliation.
+**Conflicts.** Packages fighting over the same resources, ranked by
+severity, with the load-order winner named.
 
-**The flagship features** (Phases 3–5), each with its own design document:
+**Troubleshoot.** Guided binary-search over your whole Mods folder to
+find the file breaking your game — the classic 50/50 method, automated
+and journaled so every step is reversible.
 
-* **50/50 Troubleshooting Assistant** (`docs/TROUBLESHOOTER.md`) — a
-  persistent, resumable binary search for the file breaking the game.
-  Hash-verified arrangements with live progress, abort restores every
-  byte, confirmed culprits are handed to Quarantine. Field-validated on a
-  4,213-file library: thirteen rounds, culprit confirmed, quarantined, and
-  restored.
-* **Profiles** (`docs/PROFILES.md`) — named setups with live-tracked
-  disabled sets, built on a verified in-place enable/disable engine
-  (`X.package ⇄ X.package.off`) that the scanner fully understands,
-  including renames done by hand in Explorer. Switching previews the exact
-  diff, then arranges the library to match — journaled, progress-barred,
-  activating only on a clean apply.
-* **Patch Center: Update Radar** (`docs/PATCH_CENTER.md`) — the library
-  checked against CurseForge itself using their fingerprint scheme
-  (MurmurHash2, seed 1, whitespace-stripped; proven against independently
-  computed vectors). Only anonymous fingerprints ever leave the machine;
-  the API key lives in the local database and rides a request header.
+**Profiles.** Named snapshots of which mods are enabled; switch loadouts
+in one click.
 
-**The look**: the full gilded-emerald art direction — engraved cartouche
-frames, corner scrolls, spliced finials, paper grain, the lit sidebar with
-its starfield and constellations — render-verified against the approved
-preview before every ship (`docs/DESIGN_SPEC.md`).
+**Patch Center.** Your library checked against CurseForge. Exact
+fingerprints where the index supports them; an attributed name radar
+where it doesn't (CurseForge's Sims 4 index can't match its own
+fingerprints). Matches are creator-aware — author confirmation boosts,
+author mismatch demands a distinctive name — and a Re-verify pass can
+re-judge the whole cache whenever standards improve. One-click Update
+downloads the latest release, backs up your copy, and swaps it in
+(single-file releases; archives fall back to Open Mod).
 
-Nothing in this repository fakes functionality. Unfinished surfaces say
-so — and right now, none need to.
+**Quarantine, Backups, Activity.** The safety spine: nothing is ever
+deleted, everything is journaled, everything can come back.
 
-## Commands
+## Principles
 
-```
-# Safety core + feature engines (Rust ≥ 1.75; bundled SQLite compiles via cc)
-cargo test --manifest-path core/Cargo.toml
+Precision over recall; evidence over folklore (parsers come from
+reference sources, decoders from the census); wrong data gets wiped and
+recomputed rather than patched; every destructive path goes through the
+backup journal first.
 
-# Frontend (Node ≥ 20)
-npm install
-npm run typecheck
-npm run build
-npm run dev        # UI only — use `npm run tauri dev` for a working backend
-```
+## Building
 
-## Repository layout
-
-```
-core/        Rust safety core + feature engines — standalone Cargo root, no
-             Tauri dependency; 160 tests on conservative toolchains and
-             Windows CI runners
-src/         React + TypeScript frontend (Vite, Tailwind design tokens) —
-             eleven screens in the shipped chrome
-src-tauri/   Tauri 2 shell — 42 typed commands, game/scan/hunt guards, live
-             progress events, CurseForge client; `release.yml` builds the
-             NSIS installer on every push (Actions run → Artifacts)
-docs/        ARCHITECTURE · SAFETY_MODEL · DATA_MODEL · DESIGN_SPEC ·
-             DEVELOPMENT · ROADMAP · RESEARCH · FEATURE_STATUS ·
-             TROUBLESHOOTER · PROFILES · PATCH_CENTER
-fixtures/    generate_demo_library.py — safe test library with documented
-             findings
-```
-
-## Safety principles (non-negotiable)
-
-Every bulk mutation: validate containment → refuse while the game runs →
-immutable plan → user review → snapshot where files leave the library →
-journal → execute → verify hashes → update the database only after
-filesystem verification → provide restore. Destinations are never
-overwritten; a changed file refuses to move; partial backups remove
-themselves; corrupt backups refuse to restore. The troubleshooter, the
-toggle engine, and profile switching all ride the same `verified_move`
-and the same journal as quarantine — one safety story, everywhere.
+Tauri 2 + Rust core + React/TypeScript. `npm install`, then
+`npm run tauri build`. CI runs the core test suite; the Windows
+Installer workflow produces the installer on every push.

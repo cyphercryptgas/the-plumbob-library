@@ -1191,3 +1191,19 @@ pub fn set_creator(
     )?;
     Ok(())
 }
+
+/// The paths the updater needs to swap one file safely.
+pub fn file_paths(
+    conn: &Connection,
+    id: i64,
+) -> Result<Option<(String, String, String)>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT absolute_path, relative_path, current_filename
+         FROM files WHERE id = ?1 AND missing = 0 AND status = 'current'",
+    )?;
+    let row = stmt
+        .query_map(params![id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .next()
+        .transpose()?;
+    Ok(row)
+}
