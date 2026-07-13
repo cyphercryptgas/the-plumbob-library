@@ -284,16 +284,32 @@ pub fn upsert_lookup(
 
 /// Eligible files with what the name tier needs: the logical file name and
 /// the disk mtime (the honest "your build" date for approximate matches).
-pub fn eligible_files(
-    conn: &Connection,
-) -> Result<Vec<(i64, String, Option<String>)>, DbError> {
+pub struct EligibleFile {
+    pub id: i64,
+    pub file_name: String,
+    pub mtime: Option<String>,
+    /// Canonical creator key ('' = examined, uncredited).
+    pub creator: Option<String>,
+    pub creator_display: Option<String>,
+}
+
+pub fn eligible_files(conn: &Connection) -> Result<Vec<EligibleFile>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT id, current_filename, modified_at_fs FROM files
+        "SELECT id, current_filename, modified_at_fs, creator, creator_display
+         FROM files
          WHERE missing = 0 AND status = 'current'
            AND file_type IN ('package', 'ts4script')",
     )?;
     let rows = stmt
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .query_map([], |r| {
+            Ok(EligibleFile {
+                id: r.get(0)?,
+                file_name: r.get(1)?,
+                mtime: r.get(2)?,
+                creator: r.get(3)?,
+                creator_display: r.get(4)?,
+            })
+        })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }

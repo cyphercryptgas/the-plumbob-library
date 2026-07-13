@@ -414,6 +414,79 @@ pub fn accept_name_match(term: &str, mod_name: &str, authors: &[String]) -> Opti
     }
 }
 
+fn squash(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
+}
+
+/// Name acceptance, sharpened by attribution. With a known file creator:
+/// candidates whose CurseForge authors match it are accepted at lower
+/// similarity with boosted confidence; candidates by *someone else* face
+/// a stricter bar — the guard against a generic term matching the wrong
+/// creator's work. Without attribution, the legacy rule applies.
+pub fn accept_name_match_attributed(
+    term: &str,
+    mod_name: &str,
+    authors: &[String],
+    file_creator: Option<&str>,
+) -> Option<f32> {
+    let Some(creator) = file_creator.filter(|c| !c.is_empty()) else {
+        return accept_name_match(term, mod_name, authors);
+    };
+    let sim = name_similarity(term, mod_name, authors);
+    let shared = (sim * term.split_whitespace().count() as f32).round() as usize;
+    let ck = squash(creator);
+    let author_hit = authors.iter().any(|a| {
+        let ak = squash(a);
+        ak == ck || (ak.len() >= 4 && ck.contains(&ak)) || (ck.len() >= 4 && ak.contains(&ck))
+    });
+    if author_hit {
+        if sim >= 0.4 && shared >= 1 {
+            Some((sim + 0.25).min(1.0))
+        } else {
+            None
+        }
+    } else if sim >= 0.85 && shared >= 3 {
+        // Author mismatch with a known creator: only a distinctive name
+        // survives — aliases differ, but two generic tokens don't earn
+        // someone else's byline.
+        Some(sim)
+    } else {
+        None
+    }
+}
+
+/// A creator-anchored search term for files whose names alone are too
+/// thin to query: one content token plus a byline becomes searchable
+/// ("hair" by Simancholy → "simancholy hair"). Names with no language at
+/// all stay skipped, byline or not.
+pub fn search_term_with_creator(
+    file_name: &str,
+    creator_display: Option<&str>,
+) -> Option<String> {
+    if let Some(t) = search_term(file_name) {
+        return Some(t);
+    }
+    let creator = creator_display.filter(|c| !c.is_empty())?;
+    let stem = file_name.strip_suffix(crate::scan::DISABLED_SUFFIX).unwrap_or(file_name);
+    let stem = stem
+        .strip_suffix(".package")
+        .or_else(|| stem.strip_suffix(".ts4script"))
+        .unwrap_or(stem);
+    let tokens = tokenize(stem);
+    if tokens.is_empty() {
+        return None;
+    }
+    let mut all = tokenize(creator);
+    all.extend(tokens);
+    if all.len() < 2 {
+        return None;
+    }
+    Some(all.into_iter().take(6).collect::<Vec<_>>().join(" "))
+}
+
 #[cfg(test)]
 mod name_tests {
     use super::*;
@@ -439,6 +512,54 @@ mod name_tests {
         // Hash-named CC and stubs are skipped, not guessed at.
         assert_eq!(search_term("7cbcd7a91f3e.package"), None);
         assert_eq!(search_term("hair.package"), None);
+    }
+
+    #[test]
+    fn attribution_boosts_confirmed_authors_and_guards_strangers() {
+        // Author confirmed: a modest name match by the right creator
+        // clears the bar with boosted confidence.
+        let conf = accept_name_match_attributed(
+            "kuttoe emotional traits overhaul extra",
+            "Emotional Overhaul",
+            &["Kuttoe".to_string()],
+            Some("kuttoe"),
+        )
+        .expect("confirmed author accepted");
+        assert!(conf > 0.6, "boosted: {conf}");
+        // Wrong author + known creator: a decent name match is refused.
+        assert!(accept_name_match_attributed(
+            "alana skirt",
+            "Alana Mini Skirt",
+            &["someoneelse".to_string()],
+            Some("arethabee"),
+        )
+        .is_none());
+        // No attribution: the legacy rule, unchanged.
+        assert!(accept_name_match_attributed(
+            "mc cmd center",
+            "MC Command Center",
+            &["Deaderpool".to_string()],
+            None,
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn creator_anchored_terms_rescue_thin_names() {
+        assert_eq!(
+            search_term_with_creator("hair.package", Some("Simancholy")).as_deref(),
+            Some("simancholy hair")
+        );
+        assert_eq!(
+            search_term_with_creator("7cbcd7a91f3e.package", Some("Simancholy")),
+            None,
+            "no language means no search, byline or not"
+        );
+        assert_eq!(
+            search_term_with_creator("KUTTOE_NewEmotionalTraits.package", None).as_deref(),
+            Some("kuttoe new emotional traits"),
+            "rich names take the ordinary path"
+        );
     }
 
     #[test]

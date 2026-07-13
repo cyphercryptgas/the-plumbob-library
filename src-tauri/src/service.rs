@@ -1205,12 +1205,24 @@ pub fn check_curse_updates(
     };
     let mut term_files: std::collections::HashMap<String, Vec<(i64, Option<String>)>> =
         std::collections::HashMap::new();
-    for (file_id, file_name, mtime) in &eligible_rows {
-        if fp_matched_ids.contains(file_id) {
+    let mut term_creator: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for f in &eligible_rows {
+        if fp_matched_ids.contains(&f.id) {
             continue;
         }
-        if let Some(term) = plumbob_core::curse::search_term(file_name) {
-            term_files.entry(term).or_default().push((*file_id, mtime.clone()));
+        let anchored = plumbob_core::curse::search_term_with_creator(
+            &f.file_name,
+            f.creator_display.as_deref(),
+        );
+        if let Some(term) = anchored {
+            term_files
+                .entry(term.clone())
+                .or_default()
+                .push((f.id, f.mtime.clone()));
+            if let Some(key) = f.creator.as_deref().filter(|c| !c.is_empty()) {
+                term_creator.entry(term).or_insert_with(|| key.to_string());
+            }
         }
     }
     let known = {
@@ -1250,8 +1262,13 @@ pub fn check_curse_updates(
                     .filter_map(|m| {
                         let authors: Vec<String> =
                             m.authors.iter().map(|a| a.name.clone()).collect();
-                        plumbob_core::curse::accept_name_match(term, &m.name, &authors)
-                            .map(|sim| (sim, m))
+                        plumbob_core::curse::accept_name_match_attributed(
+                            term,
+                            &m.name,
+                            &authors,
+                            term_creator.get(term).map(String::as_str),
+                        )
+                        .map(|sim| (sim, m))
                     })
                     .max_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
                 let guard = lock_db(dbm)?;

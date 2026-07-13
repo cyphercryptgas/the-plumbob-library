@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.21.0 — The Attributed Radar
+
+* **Creator data now sharpens the radar** — the honest answer to
+  "richer than names alone": yes for creators, no for images. Two
+  mechanisms: **author confirmation** (a file's byline matching a
+  candidate's CurseForge authors accepts modest name-matches with
+  boosted confidence, while an author *mismatch* demands a distinctive
+  name — two generic tokens don't earn someone else's byline) and
+  **creator-anchored search** (thin names become searchable: `hair` by
+  Simancholy queries as "simancholy hair"). Existing cached matches are
+  untouched; the new standards apply to the remaining terms and all
+  future ones.
+* **Images can't honestly help identification** — our thumbnails are
+  in-game renders, CurseForge logos are marketing art; hashing across
+  those domains is noise at real bandwidth cost. But the Patch Center's
+  rows now wear the thumbnails we already extract, matching the
+  Dashboard, Duplicates, and Conflicts.
+
+
 ## 0.20.0 — Bylines Everywhere
 
 * **Every credited file in the Library wears its creator's full name** —

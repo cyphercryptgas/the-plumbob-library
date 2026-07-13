@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { getThumbnails } from "../lib/commands";
 import {
   checkCurseUpdates,
   curseStatus,
@@ -22,6 +24,7 @@ function shortDate(iso: string | null): string {
 export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
   const { settings, reportError } = useApp();
   const [rows, setRows] = useState<CurseStatusRow[]>([]);
+  const [thumbs, setThumbs] = useState<Record<number, string>>({});
   const [loaded, setLoaded] = useState(false);
   const [checking, setChecking] = useState(false);
   const [progress, setProgress] = useState<PatchProgressEvent | null>(null);
@@ -84,6 +87,27 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
   const current = rows.filter((r) => r.modName && !r.updateAvailable);
   const unknown = rows.filter((r) => !r.modName);
   const checkedAt = rows.find((r) => r.checkedAt)?.checkedAt ?? null;
+
+  useEffect(() => {
+    const ids = rows.map((r) => r.fileId).slice(0, 200);
+    const missing = ids.filter((id) => !(id in thumbs));
+    if (missing.length === 0) return;
+    let alive = true;
+    getThumbnails(missing)
+      .then((got) => {
+        if (!alive) return;
+        setThumbs((prev) => {
+          const next = { ...prev };
+          for (const t of got) if (t.path) next[t.fileId] = convertFileSrc(t.path);
+          return next;
+        });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -229,9 +253,17 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
                 key={r.fileId}
                 className="flex items-center gap-3 border-b border-gold/25 px-2 py-3 last:border-0"
               >
-                <span className="icon-chip flex h-11 w-11 shrink-0 items-center justify-center rounded-xl">
-                  <Icon name="conflicts" size={18} />
-                </span>
+                {thumbs[r.fileId] ? (
+                  <img
+                    src={thumbs[r.fileId]}
+                    alt=""
+                    className="h-11 w-11 shrink-0 rounded-xl border border-gold/40 object-cover"
+                  />
+                ) : (
+                  <span className="icon-chip flex h-11 w-11 shrink-0 items-center justify-center rounded-xl">
+                    <Icon name="conflicts" size={18} />
+                  </span>
+                )}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-ink">
                     {r.modName}
