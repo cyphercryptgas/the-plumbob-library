@@ -62,6 +62,9 @@ pub struct MatchRecord {
     /// 'fingerprint' (exact bytes) or 'name' (approximate).
     pub match_kind: &'static str,
     pub confidence: Option<f64>,
+    /// CurseForge's allowModDistribution — false = the author closed the
+    /// API door; None = not yet learned.
+    pub allow_distribution: Option<bool>,
 }
 
 /// A check replaces the whole cache atomically — the radar always shows
@@ -79,9 +82,9 @@ pub fn replace_matches(
                 (file_id, curse_mod_id, curse_file_id, mod_name, website_url,
                  matched_file_name, matched_file_date, latest_file_id,
                  latest_file_name, latest_file_date, update_available,
-                 match_kind, confidence, checked_at)
+                 match_kind, confidence, checked_at, allow_distribution)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                 ?14)",
+                 ?14, ?15)",
         )?;
         for m in records {
             stmt.execute(params![
@@ -99,6 +102,7 @@ pub fn replace_matches(
                 m.match_kind,
                 m.confidence,
                 checked_at,
+                m.allow_distribution
             ])?;
         }
     }
@@ -127,6 +131,7 @@ pub struct CurseStatusRow {
     pub match_kind: Option<String>,
     pub confidence: Option<f64>,
     pub checked_at: Option<String>,
+    pub allow_distribution: Option<bool>,
 }
 
 pub fn status(conn: &Connection) -> Result<Vec<CurseStatusRow>, DbError> {
@@ -137,7 +142,7 @@ pub fn status(conn: &Connection) -> Result<Vec<CurseStatusRow>, DbError> {
                 m.mod_name, m.website_url, m.matched_file_name,
                 m.matched_file_date, m.latest_file_name, m.latest_file_date,
                 COALESCE(m.update_available, 0), m.match_kind, m.confidence,
-                m.checked_at
+                m.checked_at, m.allow_distribution
          FROM files f
          LEFT JOIN curse_matches m ON m.file_id = f.id
          WHERE f.missing = 0 AND f.status = 'current'
@@ -166,6 +171,7 @@ pub fn status(conn: &Connection) -> Result<Vec<CurseStatusRow>, DbError> {
                 match_kind: r.get(14)?,
                 confidence: r.get(15)?,
                 checked_at: r.get(16)?,
+                allow_distribution: r.get(17)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -200,6 +206,7 @@ mod tests {
             update_available: false,
             match_kind: "name",
             confidence: Some(0.6),
+            allow_distribution: None,
         };
         replace_matches(db.conn_mut(), &[mk(r[0]), mk(r[1]), mk(r[2])]).unwrap();
         update_name_confidence(db.conn(), &[r[0], r[1]], 77, 0.9).unwrap();
@@ -273,6 +280,7 @@ mod tests {
             latest_file_date: "2026-06-01T00:00:00Z".into(),
             update_available: true,
             match_kind: "fingerprint",
+            allow_distribution: None,
             confidence: None,
         };
         replace_matches(db.conn_mut(), &[rec.clone()]).unwrap();
@@ -465,7 +473,9 @@ pub fn mark_updated(
     file_id: i64,
     sha256: &str,
     size_bytes: i64,
+    modified_at: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), DbError> {
+    let mtime = modified_at.to_rfc3339();
     conn.execute(
         "UPDATE curse_matches
          SET matched_file_name = latest_file_name,
@@ -476,8 +486,9 @@ pub fn mark_updated(
         params![file_id],
     )?;
     conn.execute(
-        "UPDATE files SET sha256 = ?2, size_bytes = ?3 WHERE id = ?1",
-        params![file_id, sha256, size_bytes],
+        "UPDATE files SET sha256 = ?2, size_bytes = ?3, modified_at_fs = ?4
+         WHERE id = ?1",
+        params![file_id, sha256, size_bytes, mtime],
     )?;
     Ok(())
 }

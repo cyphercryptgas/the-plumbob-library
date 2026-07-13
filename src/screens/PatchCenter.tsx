@@ -346,7 +346,15 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
                   </Pill>
                 ) : null}
                 {!r.enabled ? <Pill tone="neutral">off</Pill> : null}
-                {/\.(package|ts4script|zip)$/i.test(r.latestFileName ?? "") ? (
+                {r.allowDistribution === false ? (
+                  <Button
+                    disabled
+                    variant="quiet"
+                    title="This author hasn't enabled third-party downloads on CurseForge — use Open Mod to update by hand."
+                  >
+                    Update
+                  </Button>
+                ) : /\.(package|ts4script|zip)$/i.test(r.latestFileName ?? "") ? (
                   <Button
                     disabled={updatingId !== null}
                     title="Download the latest release, back up your copy, and swap it in"

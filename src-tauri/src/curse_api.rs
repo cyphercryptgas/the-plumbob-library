@@ -88,6 +88,8 @@ pub struct CurseMod {
     pub latest_files: Vec<CurseFile>,
     #[serde(default)]
     pub authors: Vec<Author>,
+    #[serde(default)]
+    pub allow_mod_distribution: Option<bool>,
 }
 
 #[derive(Clone, Default, Deserialize)]

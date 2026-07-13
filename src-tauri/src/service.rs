@@ -1392,6 +1392,7 @@ pub fn check_curse_updates(
                 &latest.file_date,
             ),
             match_kind: "fingerprint",
+            allow_distribution: mod_info.allow_mod_distribution,
             confidence: None,
         });
     }
@@ -1428,6 +1429,7 @@ pub fn check_curse_updates(
                     .map(|m| plumbob_core::curse::date_newer(m, &latest.file_date))
                     .unwrap_or(false),
                 match_kind: "name",
+                allow_distribution: mod_info.allow_mod_distribution,
                 confidence: name_confidence.get(term).copied(),
             });
         }
@@ -2113,7 +2115,11 @@ pub fn apply_update(dbm: &Mutex<Database>, data_dir: &Path, file_id: i64) -> UiR
     let mut overlaps: Vec<String> = Vec::new();
     {
         let guard = lock_db(dbm)?;
-        db::curse::mark_updated(guard.conn(), file_id, &sha, bytes.len() as i64)
+        let mtime = std::fs::metadata(target)
+            .and_then(|m| m.modified())
+            .map(chrono::DateTime::<chrono::Utc>::from)
+            .unwrap_or_else(|_| chrono::Utc::now());
+        db::curse::mark_updated(guard.conn(), file_id, &sha, bytes.len() as i64, mtime)
             .map_err(err_str)?;
         if expects_package {
             if let Ok(index) = plumbob_core::dbpf::read_package_index(target) {

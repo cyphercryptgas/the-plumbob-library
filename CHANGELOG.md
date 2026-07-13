@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.24.1 — Stale Dates & Closed Doors
+
+* **Updated files now stay updated.** The verdict "update available"
+  compares the latest release date against your file's stored modified
+  time — and the update pass refreshed the hash and size but not that
+  timestamp, so every Check resurrected the row you'd just updated,
+  forever. The truth pass now records the on-disk mtime through the
+  exact same formatter the scanner uses. Updated rows leave the list
+  and stay gone.
+* **Closed doors are pre-flagged.** The "author hasn't enabled
+  third-party downloads" wall is CurseForge policy, not a bug — but you
+  shouldn't need a click to learn it. The mod's allowModDistribution
+  flag is now captured on every Check, and those rows show a disabled
+  Update with the explanation on hover. (Existing rows learn their flag
+  on your next Check; until then the click still answers honestly.)
+* Also caught pre-flight: the shell was missing its chrono dependency —
+  the installer would have said so less politely.
+
+
 ## 0.24.0 — The Updater, For Real
 
 * **Archive-aware updating.** The field verdict was blunt: CurseForge CC

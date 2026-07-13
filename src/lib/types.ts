@@ -354,4 +354,5 @@ export interface CurseStatusRow {
   matchKind: string | null;
   confidence: number | null;
   checkedAt: string | null;
+  allowDistribution: boolean | null;
 }

@@ -782,6 +782,7 @@ mod tests {
                 update_available: false,
                 match_kind: "name",
                 confidence: Some(0.9),
+                allow_distribution: None,
             }],
         )
         .unwrap();
