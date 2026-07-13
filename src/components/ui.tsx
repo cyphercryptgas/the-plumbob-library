@@ -306,9 +306,15 @@ export type IconName =
   | "lock" | "help" | "sparkle"
   | "search"
   | "target"
-  | "merge" | "image" | "radar";
+  | "merge" | "image" | "radar" | "tag";
 
 const ICON_PATHS: Record<IconName, ReactNode> = {
+  tag: (
+    <>
+      <path d="M4 5h8l8 7-8 7-8-7V5z" />
+      <circle cx="8.5" cy="9.5" r="1.4" />
+    </>
+  ),
   merge: (
     <>
       <path d="M4 5h4l4 5 4-5h4" />

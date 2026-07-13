@@ -695,3 +695,24 @@ pub async fn merge_files(
 pub fn plan_auto_merge(state: State<'_, AppState>) -> UiResult<service::AutoMergePlan> {
     service::plan_auto_merge(&state.db)
 }
+
+#[tauri::command]
+pub fn title_plan(
+    state: State<'_, AppState>,
+    file_ids: Option<Vec<i64>>,
+    today: bool,
+) -> UiResult<service::TitlePlan> {
+    service::title_plan(&state.db, file_ids, today)
+}
+
+#[tauri::command]
+pub fn title_apply(
+    state: State<'_, AppState>,
+    file_ids: Option<Vec<i64>>,
+    today: bool,
+) -> UiResult<service::TitleOutcome> {
+    if state.scan_in_progress.load(Ordering::SeqCst) {
+        return Err("A scan is running. Let it finish before renaming.".to_string());
+    }
+    service::title_apply(&state.db, file_ids, today)
+}

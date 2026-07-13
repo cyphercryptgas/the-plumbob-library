@@ -3,6 +3,8 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { getThumbnails } from "../lib/commands";
 import {
   checkCurseUpdates,
+  titleApply,
+  titlePlan,
   listBackups,
   listConflicts,
   listDuplicateGroups,
@@ -210,6 +212,43 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
       const out = await prepareThumbnails();
       setQuickNote(
         `Thumbnails: ${out.generated.toLocaleString()} new · ${out.cached.toLocaleString()} cached · ${out.noImage.toLocaleString()} without art.`
+      );
+    } catch (e) {
+      reportError(String(e));
+    } finally {
+      setQuickBusy(null);
+    }
+  };
+
+  const runTitleToday = async () => {
+    setQuickBusy("title");
+    setQuickNote(null);
+    try {
+      const plan = await titlePlan(null, true);
+      if (plan.items.length === 0) {
+        setQuickNote(
+          plan.skipped.length > 0
+            ? `Nothing to retitle today: ${plan.skipped.length} of today's files lack creator attribution (the convention leads with one).`
+            : "Nothing arrived today that needs retitling."
+        );
+        return;
+      }
+      const preview = plan.items
+        .slice(0, 4)
+        .map((i) => `${i.from} → ${i.to}`)
+        .join("\n");
+      if (
+        !window.confirm(
+          `Title ${plan.items.length} of today's files as [creator]_[modtype]_[modname]?\n\n${preview}${plan.items.length > 4 ? `\n…and ${plan.items.length - 4} more` : ""}${plan.skipped.length > 0 ? `\n\nSkipping ${plan.skipped.length} without creator attribution.` : ""}`
+        )
+      )
+        return;
+      const out = await titleApply(null, true);
+      setQuickNote(
+        `Titled ${out.renamed} file(s)` +
+          (out.examples.length > 0 ? ` — e.g. ${out.examples[0].to}` : "") +
+          (out.skipped.length > 0 ? `; ${out.skipped.length} skipped` : "") +
+          "."
       );
     } catch (e) {
       reportError(String(e));
@@ -680,10 +719,10 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
             <SectionTitle>Quick actions</SectionTitle>
             <div className="grid grid-cols-2 gap-3">
               <ActionTile
-                icon="library"
-                label={scan.running ? "Scanning…" : "Scan now"}
-                onClick={() => void startScan()}
-                disabled={scan.running}
+                icon="tag"
+                label={quickBusy === "title" ? "Titling…" : "Title tool"}
+                onClick={() => void runTitleToday()}
+                disabled={quickBusy !== null}
               />
               <ActionTile
                 icon="merge"

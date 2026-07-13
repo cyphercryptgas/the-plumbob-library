@@ -94,7 +94,7 @@ static OP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::
 /// name quarantine/backup folders and correlate journal rows on one machine.
 /// They never need global uniqueness, and skipping a randomness dependency
 /// keeps the safety core's dependency graph small and auditable.
-pub(crate) fn new_operation_id() -> String {
+pub fn new_operation_id() -> String {
     let now = chrono::Utc::now();
     let n = OP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     format!(

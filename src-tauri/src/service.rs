@@ -2493,3 +2493,187 @@ pub fn plan_auto_merge(dbm: &Mutex<Database>) -> UiResult<AutoMergePlan> {
         unreadable_names,
     })
 }
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TitleItem {
+    pub file_id: i64,
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TitlePlan {
+    pub items: Vec<TitleItem>,
+    /// (filename, reason) — files the convention can't title yet.
+    pub skipped: Vec<(String, String)>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TitleOutcome {
+    pub renamed: usize,
+    pub skipped: Vec<(String, String)>,
+    pub examples: Vec<TitleItem>,
+}
+
+fn build_title_plan(
+    conn: &rusqlite::Connection,
+    ids: Option<&[i64]>,
+    today_only: bool,
+) -> Result<TitlePlan, String> {
+    let candidates =
+        db::files::title_candidates(conn, ids, today_only).map_err(err_str)?;
+    let mut items = Vec::new();
+    let mut skipped = Vec::new();
+    for c in candidates {
+        let display = c
+            .creator_display
+            .clone()
+            .filter(|d| !d.is_empty())
+            .or_else(|| c.creator.clone().filter(|k| !k.is_empty()));
+        let Some(display) = display else {
+            skipped.push((
+                c.current_filename.clone(),
+                "no creator attribution — the convention leads with one".to_string(),
+            ));
+            continue;
+        };
+        let ext = if c.file_type == "ts4script" {
+            "ts4script"
+        } else {
+            "package"
+        };
+        let to = plumbob_core::titles::compose(
+            &display,
+            c.category.as_deref(),
+            c.cas_subcategory.as_deref(),
+            &c.current_filename,
+            c.creator.as_deref().unwrap_or(&display),
+            c.curse_mod_name.as_deref(),
+            ext,
+        );
+        if to == c.current_filename {
+            continue; // already titled
+        }
+        items.push(TitleItem {
+            file_id: c.id,
+            from: c.current_filename,
+            to,
+        });
+    }
+    Ok(TitlePlan { items, skipped })
+}
+
+pub fn title_plan(
+    dbm: &Mutex<Database>,
+    ids: Option<Vec<i64>>,
+    today_only: bool,
+) -> UiResult<TitlePlan> {
+    let guard = lock_db(dbm)?;
+    build_title_plan(guard.conn(), ids.as_deref(), today_only)
+}
+
+/// Rename through the row: filesystem and database move together, the
+/// whole batch journaled so Activity shows exactly what was retitled.
+pub fn title_apply(
+    dbm: &Mutex<Database>,
+    ids: Option<Vec<i64>>,
+    today_only: bool,
+) -> UiResult<TitleOutcome> {
+    let guard = lock_db(dbm)?;
+    let plan = build_title_plan(guard.conn(), ids.as_deref(), today_only)?;
+    if plan.items.is_empty() {
+        return Ok(TitleOutcome {
+            renamed: 0,
+            skipped: plan.skipped,
+            examples: Vec::new(),
+        });
+    }
+    let lookup = db::files::title_candidates(
+        guard.conn(),
+        Some(&plan.items.iter().map(|i| i.file_id).collect::<Vec<_>>()),
+        false,
+    )
+    .map_err(err_str)?;
+    let by_id: std::collections::HashMap<i64, _> =
+        lookup.into_iter().map(|c| (c.id, c)).collect();
+    let op_uid = plumbob_core::ops::new_operation_id();
+    let mut journal = db::ops::SqliteJournal::new(guard.conn());
+    journal.record(plumbob_core::ops::JournalEvent::OperationStarted {
+        operation_id: op_uid.clone(),
+        kind: "rename".to_string(),
+        total_steps: plan.items.len(),
+    });
+    let mut renamed = 0usize;
+    let mut examples = Vec::new();
+    let mut skipped = plan.skipped.clone();
+    for (step, item) in plan.items.iter().enumerate() {
+        let Some(c) = by_id.get(&item.file_id) else {
+            continue;
+        };
+        let src = std::path::Path::new(&c.absolute_path);
+        let parent = src.parent().unwrap_or_else(|| std::path::Path::new(""));
+        let mut target_name = item.to.clone();
+        let mut n = 2;
+        while parent.join(&target_name).exists() {
+            let (stem, ext) = target_name
+                .rsplit_once('.')
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .unwrap_or((target_name.clone(), "package".to_string()));
+            target_name = format!("{stem}-{n}.{ext}");
+            n += 1;
+            if n > 20 {
+                break;
+            }
+        }
+        let target = parent.join(&target_name);
+        match std::fs::rename(src, &target) {
+            Ok(()) => {
+                let rel_parent = std::path::Path::new(&c.relative_path)
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_default();
+                let new_rel = rel_parent.join(&target_name);
+                db::files::apply_rename(
+                    guard.conn(),
+                    item.file_id,
+                    &new_rel.to_string_lossy(),
+                    &target.to_string_lossy(),
+                    &target_name,
+                )
+                .map_err(err_str)?;
+                journal.record(plumbob_core::ops::JournalEvent::StepSucceeded {
+                    operation_id: op_uid.clone(),
+                    step,
+                    action: "rename".to_string(),
+                    source: src.to_path_buf(),
+                    destination: Some(target.clone()),
+                    sha256: None,
+                });
+                if examples.len() < 4 {
+                    examples.push(TitleItem {
+                        file_id: item.file_id,
+                        from: item.from.clone(),
+                        to: target_name.clone(),
+                    });
+                }
+                renamed += 1;
+            }
+            Err(e) => skipped.push((item.from.clone(), format!("rename failed: {e}"))),
+        }
+    }
+    journal.record(plumbob_core::ops::JournalEvent::OperationFinished {
+        operation_id: op_uid.clone(),
+        status: "completed".to_string(),
+        succeeded: renamed,
+        failed: skipped.len(),
+    });
+    journal.finish().map_err(err_str)?;
+    Ok(TitleOutcome {
+        renamed,
+        skipped,
+        examples,
+    })
+}

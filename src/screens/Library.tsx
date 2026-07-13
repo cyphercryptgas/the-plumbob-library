@@ -294,6 +294,65 @@ export function Library(props: {
           {selected.size > 0 ? (
             <>
               {(() => {
+                const titleIds = rows
+                  .filter(
+                    (r) =>
+                      selected.has(r.id) &&
+                      (r.fileType === "package" || r.fileType === "ts4script")
+                  )
+                  .map((r) => r.id);
+                if (titleIds.length === 0) return null;
+                return (
+                  <Button
+                    variant="soft"
+                    disabled={merging}
+                    title="Rename the selected files as [creator]_[modtype]_[modname], extracted from the files themselves"
+                    onClick={() => {
+                      setMergeNote(null);
+                      api
+                        .titlePlan(titleIds, false)
+                        .then((plan) => {
+                          if (plan.items.length === 0) {
+                            setMergeNote(
+                              plan.skipped.length > 0
+                                ? `Nothing to retitle: ${plan.skipped.length} selected file(s) lack creator attribution.`
+                                : "The selection is already titled to convention."
+                            );
+                            return;
+                          }
+                          const preview = plan.items
+                            .slice(0, 4)
+                            .map((i) => `${i.from} → ${i.to}`)
+                            .join("\n");
+                          if (
+                            !window.confirm(
+                              `Title ${plan.items.length} file(s)?\n\n${preview}${plan.items.length > 4 ? `\n…and ${plan.items.length - 4} more` : ""}`
+                            )
+                          )
+                            return;
+                          return api.titleApply(titleIds, false).then((out) => {
+                            setMergeNote(
+                              `Titled ${out.renamed} file(s)` +
+                                (out.examples.length > 0
+                                  ? ` — e.g. ${out.examples[0].to}`
+                                  : "") +
+                                (out.skipped.length > 0
+                                  ? `; ${out.skipped.length} skipped`
+                                  : "") +
+                                "."
+                            );
+                            setSelected(new Set());
+                            setRowsEpoch((e) => e + 1);
+                          });
+                        })
+                        .catch(reportError);
+                    }}
+                  >
+                    Title {titleIds.length} file{titleIds.length > 1 ? "s" : ""}
+                  </Button>
+                );
+              })()}
+                            {(() => {
                 const pkgIds = rows
                   .filter((r) => selected.has(r.id) && r.fileType === "package")
                   .map((r) => r.id);

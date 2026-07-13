@@ -1260,3 +1260,87 @@ pub fn auto_merge_survey(conn: &Connection) -> Result<AutoMergeSurvey, DbError> 
         skipped_disabled,
     })
 }
+
+/// Everything the Title Tool needs about a set of files, one query.
+pub struct TitleCandidate {
+    pub id: i64,
+    pub relative_path: String,
+    pub absolute_path: String,
+    pub current_filename: String,
+    pub file_type: String,
+    pub creator: Option<String>,
+    pub creator_display: Option<String>,
+    pub category: Option<String>,
+    pub cas_subcategory: Option<String>,
+    pub curse_mod_name: Option<String>,
+}
+
+pub fn title_candidates(
+    conn: &Connection,
+    ids: Option<&[i64]>,
+    today_only: bool,
+) -> Result<Vec<TitleCandidate>, DbError> {
+    let base = "SELECT f.id, f.relative_path, f.absolute_path, f.current_filename,
+                f.file_type, f.creator, f.creator_display, f.category,
+                f.cas_subcategory, m.mod_name
+         FROM files f LEFT JOIN curse_matches m ON m.file_id = f.id
+         WHERE f.missing = 0 AND f.status = 'current'
+           AND f.file_type IN ('package', 'ts4script')";
+    let map = |r: &rusqlite::Row<'_>| -> rusqlite::Result<TitleCandidate> {
+        Ok(TitleCandidate {
+            id: r.get(0)?,
+            relative_path: r.get(1)?,
+            absolute_path: r.get(2)?,
+            current_filename: r.get(3)?,
+            file_type: r.get(4)?,
+            creator: r.get(5)?,
+            creator_display: r.get(6)?,
+            category: r.get(7)?,
+            cas_subcategory: r.get(8)?,
+            curse_mod_name: r.get(9)?,
+        })
+    };
+    let mut out = Vec::new();
+    if let Some(ids) = ids {
+        if ids.is_empty() {
+            return Ok(out);
+        }
+        let marks = std::iter::repeat("?")
+            .take(ids.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!("{base} AND f.id IN ({marks}) ORDER BY f.relative_path");
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(ids.iter()), map)?;
+        for r in rows {
+            out.push(r?);
+        }
+    } else if today_only {
+        let sql = format!(
+            "{base} AND date(f.modified_at_fs) = date('now') ORDER BY f.relative_path"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], map)?;
+        for r in rows {
+            out.push(r?);
+        }
+    }
+    Ok(out)
+}
+
+/// A rename that keeps the row truthful — path, name, everything the
+/// scanner would otherwise re-discover as a brand-new file.
+pub fn apply_rename(
+    conn: &Connection,
+    id: i64,
+    relative_path: &str,
+    absolute_path: &str,
+    current_filename: &str,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE files SET relative_path = ?2, absolute_path = ?3,
+            current_filename = ?4 WHERE id = ?1",
+        params![id, relative_path, absolute_path, current_filename],
+    )?;
+    Ok(())
+}

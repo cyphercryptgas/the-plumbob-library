@@ -69,6 +69,8 @@ fn main() {
             commands::apply_update,
             commands::merge_files,
             commands::plan_auto_merge,
+            commands::title_plan,
+            commands::title_apply,
             commands::list_quarantine,
             commands::list_backups,
             commands::list_backup_entries,

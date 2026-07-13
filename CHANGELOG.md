@@ -12,6 +12,25 @@ destructive step journaled, snapshotted, and reversible. The history
 below tells the whole story, defect confessions included.
 
 
+## 0.28.0 — The Title Tool
+
+* **Files can be named to convention now: `[creator]_[modtype]_[modname]`,
+  extracted from the files themselves.** Creator comes from attribution;
+  modtype prefers the CAS subcategory (Hair, Skirt, …) and falls back to
+  the category; modname takes the CurseForge match's name when there is
+  one, else the current filename scrubbed of brackets, creator tokens,
+  and version numbers — Alana-Mini-Skirt, Flowfit, AskToReadBook. Files
+  without creator attribution are skipped and say so: the convention
+  leads with one.
+* **Two entry points.** In the Library, select files and Title them —
+  a preview confirms before anything moves. On the Dashboard, the Title
+  tool quick action (new tag emblem, replacing Scan now — scanning keeps
+  its two other buttons) titles everything that arrived today.
+* **Renames go through the row**: filesystem and database move together
+  — path, name, match history, thumbnails all survive — and the whole
+  batch is journaled, so Activity shows each retitle with its thumbnail.
+  Name collisions get numbered suffixes.
+
 ## 0.27.5 — Disk Bytes Lie
 
 * **The 4 GB wall, root-caused: the planner budgeted disk bytes; the

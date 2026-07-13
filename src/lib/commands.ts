@@ -282,3 +282,26 @@ export interface AutoMergePlan {
 }
 
 export const planAutoMerge = () => call<AutoMergePlan>("plan_auto_merge");
+
+export interface TitleItem {
+  fileId: number;
+  from: string;
+  to: string;
+}
+
+export interface TitlePlan {
+  items: TitleItem[];
+  skipped: [string, string][];
+}
+
+export interface TitleOutcome {
+  renamed: number;
+  skipped: [string, string][];
+  examples: TitleItem[];
+}
+
+export const titlePlan = (fileIds: number[] | null, today: boolean) =>
+  call<TitlePlan>("title_plan", { fileIds, today });
+
+export const titleApply = (fileIds: number[] | null, today: boolean) =>
+  call<TitleOutcome>("title_apply", { fileIds, today });

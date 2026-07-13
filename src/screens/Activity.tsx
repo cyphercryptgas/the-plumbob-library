@@ -10,6 +10,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 const basename = (p: string) => p.split(/[\\/]/).pop() ?? p;
 
 const ACTION_VERB: Record<string, string> = {
+  rename: "Retitled",
   copy: "Backed up",
   move: "Moved",
   restore: "Restored",
@@ -17,6 +18,7 @@ const ACTION_VERB: Record<string, string> = {
 };
 
 const TYPE_ICON: Record<string, IconName> = {
+  rename: "tag",
   quarantine: "duplicates",
   restore_quarantined: "library",
   snapshot: "backups",
@@ -31,6 +33,7 @@ const STATUS_TONE: Record<string, "sage" | "warning" | "danger" | "blue"> = {
 };
 
 const TYPE_LABEL: Record<string, string> = {
+  rename: "Retitled files",
   quarantine: "Set files aside",
   restore_quarantined: "Restore from quarantine",
   snapshot: "Backup snapshot",
