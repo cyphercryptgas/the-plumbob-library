@@ -192,7 +192,14 @@ export interface ThumbDto {
 export const getThumbnails = (fileIds: number[]) =>
   call<ThumbDto[]>("get_thumbnails", { fileIds });
 
-export const prepareThumbnails = () => call<number>("prepare_thumbnails");
+export interface PrepareOutcome {
+  generated: number;
+  cached: number;
+  noImage: number;
+}
+
+export const prepareThumbnails = () =>
+  call<PrepareOutcome>("prepare_thumbnails");
 
 export interface CensusRow {
   typeHex: string;

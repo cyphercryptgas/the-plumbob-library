@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.14.0 — Calibration & Three Confessions
+
+* **Confession one: the CASP field sequence was wrong**, which is why
+  every CAS part landed in "Other". The reader no longer trusts any
+  fixed layout — it calibrates against your library: parsing the stable
+  prefix under both documented alignments, then electing the BodyType
+  column as the position whose values across hundreds of real parts are
+  overwhelmingly in the 1–43 enum range, diverse like a real wardrobe,
+  and never a constant. Synthetic corpora in tests prove the election
+  under both layouts; noise and constants elect nothing; out-of-range
+  reads are misses, not "Other". Migration wipes the wrong data — one
+  Scan reclassifies.
+* **Confession two: the Diagnose-blanks button never shipped.** Forensic
+  check of the released zip confirms the census UI was lost before
+  staging — every request for "the table" was asking for something that
+  didn't exist on your machine. It exists now, with a **Copy table**
+  button; string-verified into the bundle this time.
+* **Confession three: the vanishing images were a stale-state bug.**
+  Re-running Prepare (fast when everything's cached — that part was
+  correct) wiped the thumbnail map to force a refresh, but the fetch
+  effect never re-ran until the rows changed. An epoch counter fixes
+  it, and Prepare now ends with its honest arithmetic: *N new · N
+  cached · N without art*.
+* One new sniff-guarded image type (0x00B2D882) — a well-attested
+  container that costs nothing if wrong, since payloads still must pass
+  the PNG/JPEG/DDS magic check.
+
+
 ## 0.13.0 — Subcategories & The Great Marker Amnesty
 
 * **The stale-marker confession.** Before the DDS decoder existed, every

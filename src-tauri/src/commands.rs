@@ -611,7 +611,7 @@ pub async fn get_thumbnails(
 pub async fn prepare_thumbnails(
     app: AppHandle,
     state: State<'_, AppState>,
-) -> UiResult<usize> {
+) -> UiResult<service::PrepareOutcome> {
     let dbm = state.db.clone();
     let data_dir = state.data_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {

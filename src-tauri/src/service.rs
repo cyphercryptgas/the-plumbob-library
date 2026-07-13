@@ -1518,11 +1518,19 @@ pub fn thumbnails(
 /// Walk every package and fill the thumbnail cache ahead of time, so the
 /// gallery never waits. Read-only toward the library; emits
 /// `thumbs://progress` as it goes and returns how many images it made.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PrepareOutcome {
+    pub generated: usize,
+    pub cached: usize,
+    pub no_image: usize,
+}
+
 pub fn prepare_thumbnails(
     app: &AppHandle,
     dbm: &Mutex<Database>,
     data_dir: &Path,
-) -> UiResult<usize> {
+) -> UiResult<PrepareOutcome> {
     let cache = data_dir.join("Thumbnails");
     std::fs::create_dir_all(&cache).map_err(err_str)?;
     let work = {
@@ -1531,11 +1539,18 @@ pub fn prepare_thumbnails(
     };
     let total = work.len();
     let mut generated = 0usize;
+    let mut cached = 0usize;
+    let mut no_image = 0usize;
     for (i, (id, absolute)) in work.iter().enumerate() {
         let png = cache.join(format!("{id}.png"));
         let jpg = cache.join(format!("{id}.jpg"));
         let none = cache.join(format!("{id}.none2"));
         let _ = std::fs::remove_file(cache.join(format!("{id}.none")));
+        if png.exists() || jpg.exists() {
+            cached += 1;
+        } else if none.exists() {
+            no_image += 1;
+        }
         if !(png.exists() || jpg.exists() || none.exists()) {
             match plumbob_core::dbpf::extract_thumbnail(Path::new(absolute)) {
                 Ok(Some((bytes, ext))) => {
@@ -1546,6 +1561,7 @@ pub fn prepare_thumbnails(
                 }
                 Ok(None) => {
                     let _ = std::fs::write(&none, b"");
+                    no_image += 1;
                 }
                 Err(_) => {}
             }
@@ -1557,7 +1573,11 @@ pub fn prepare_thumbnails(
             );
         }
     }
-    Ok(generated)
+    Ok(PrepareOutcome {
+        generated,
+        cached,
+        no_image,
+    })
 }
 
 #[derive(Serialize, Clone)]
@@ -1605,26 +1625,39 @@ pub fn thumbnail_census(
         .collect())
 }
 
-/// Read each unclassified CAS package's BodyType and record its
-/// subcategory. IO happens unlocked; rows write back in small batches.
-/// Unreadable payloads stay pending and simply retry on a later scan.
+/// Classify CAS subcategories with a scheme elected from the library
+/// itself: sample real CASP payloads, let calibration find the BodyType
+/// column, then read every pending part with the winning scheme. If no
+/// scheme earns election, nothing is written — unlabeled beats wrong.
 pub fn classify_cas_subtypes(dbm: &Mutex<Database>) -> UiResult<usize> {
     let pending = {
         let guard = lock_db(dbm)?;
         db::files::cas_needing_subcategory(guard.conn()).map_err(err_str)?
     };
-    let mut done = 0usize;
-    let mut batch: Vec<(i64, &'static str)> = Vec::with_capacity(25);
-    for (i, (id, absolute)) in pending.iter().enumerate() {
-        if let Ok(Some(bt)) =
-            plumbob_core::dbpf::read_casp_body_type(Path::new(absolute))
-        {
-            batch.push((*id, plumbob_core::casp::subcategory_for(bt)));
+    if pending.is_empty() {
+        return Ok(0);
+    }
+    let mut payloads: Vec<(i64, Vec<u8>)> = Vec::new();
+    for (id, absolute) in &pending {
+        if let Ok(Some(p)) = plumbob_core::dbpf::read_casp_payload(Path::new(absolute)) {
+            payloads.push((*id, p));
         }
-        if batch.len() >= 25 || i + 1 == pending.len() {
-            let guard = lock_db(dbm)?;
-            for (id, sub) in batch.drain(..) {
-                db::files::set_cas_subcategory(guard.conn(), id, sub).map_err(err_str)?;
+    }
+    let sample: Vec<&[u8]> = payloads
+        .iter()
+        .take(400)
+        .map(|(_, p)| p.as_slice())
+        .collect();
+    let Some(scheme) = plumbob_core::casp::calibrate(&sample) else {
+        return Ok(0);
+    };
+    let mut done = 0usize;
+    for chunk in payloads.chunks(50) {
+        let guard = lock_db(dbm)?;
+        for (id, payload) in chunk {
+            if let Some(bt) = plumbob_core::casp::body_type_with(payload, scheme) {
+                let sub = plumbob_core::casp::subcategory_for(bt);
+                db::files::set_cas_subcategory(guard.conn(), *id, sub).map_err(err_str)?;
                 done += 1;
             }
         }

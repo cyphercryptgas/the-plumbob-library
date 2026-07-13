@@ -545,7 +545,15 @@ const MAX_THUMB_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Thumbnail-bearing image types, in preference order — the dedicated
 /// thumbnail type first, DDS deliberately excluded (needs conversion).
-const THUMB_TYPES: [u32; 4] = [0x3C1A_F1F2, 0x5B28_2D45, 0x2F7D_0004, 0x3453_CF95];
+const THUMB_TYPES: [u32; 5] = [
+    0x3C1A_F1F2,
+    0x5B28_2D45,
+    0x2F7D_0004,
+    0x3453_CF95,
+    // Well-attested S4 image container; payloads still must pass the
+    // PNG/JPEG/DDS sniff, so a wrong guess costs nothing.
+    0x00B2_D882,
+];
 
 /// Pull the best in-game image out of a package: PNG or JPEG payloads
 /// only, decompressing zlib entries, sniffing magic bytes, and skipping —
@@ -606,8 +614,10 @@ pub fn read_entry_payload(file: &mut File, entry: &EntryMeta) -> Option<Vec<u8>>
     }
 }
 
-/// The BodyType of the first CAS part in a package, if any.
-pub fn read_casp_body_type(path: &Path) -> Result<Option<u32>, DbpfError> {
+/// The first CAS part's decompressed payload, if the package has one.
+/// BodyType reading happens above this layer, where a calibrated scheme
+/// elected across the whole library is available.
+pub fn read_casp_payload(path: &Path) -> Result<Option<Vec<u8>>, DbpfError> {
     let index = read_package_index(path)?;
     let mut file = File::open(path)?;
     for (key, entry) in index.keys.iter().zip(index.entries.iter()) {
@@ -615,9 +625,7 @@ pub fn read_casp_body_type(path: &Path) -> Result<Option<u32>, DbpfError> {
             continue;
         }
         if let Some(payload) = read_entry_payload(&mut file, entry) {
-            if let Some(bt) = crate::casp::casp_body_type(&payload) {
-                return Ok(Some(bt));
-            }
+            return Ok(Some(payload));
         }
     }
     Ok(None)

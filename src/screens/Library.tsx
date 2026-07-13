@@ -119,6 +119,22 @@ export function Library(props: { initialSearch?: string }) {
   const [thumbs, setThumbs] = useState<Record<number, string | null>>({});
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [preparing, setPreparing] = useState<{ done: number; total: number } | null>(null);
+  const [prepared, setPrepared] = useState<api.PrepareOutcome | null>(null);
+  const [thumbsEpoch, setThumbsEpoch] = useState(0);
+  const [census, setCensus] = useState<api.CensusRow[] | null>(null);
+  const [censusBusy, setCensusBusy] = useState(false);
+  const [censusCopied, setCensusCopied] = useState(false);
+
+  const runCensus = async () => {
+    setCensusBusy(true);
+    try {
+      setCensus(await api.thumbnailCensus());
+    } catch (e) {
+      reportError(e);
+    } finally {
+      setCensusBusy(false);
+    }
+  };
 
   useEffect(
     () => onThumbsProgress((p) => setPreparing((cur) => (cur ? p : cur))),
@@ -128,8 +144,10 @@ export function Library(props: { initialSearch?: string }) {
   const prewarm = async () => {
     setPreparing({ done: 0, total: 0 });
     try {
-      await api.prepareThumbnails();
+      const outcome = await api.prepareThumbnails();
+      setPrepared(outcome);
       setThumbs({});
+      setThumbsEpoch((e) => e + 1);
     } catch (e) {
       reportError(e);
     } finally {
@@ -159,7 +177,7 @@ export function Library(props: { initialSearch?: string }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, rows]);
+  }, [view, rows, thumbsEpoch]);
 
   const cycleSort = () =>
     setSort((s) =>
@@ -320,9 +338,27 @@ export function Library(props: { initialSearch?: string }) {
                 title="Extract every package's thumbnail now so the gallery never waits"
                 className="rounded-control border border-border-subtle px-2.5 py-1 text-xs text-ink-secondary transition hover:border-gold/60"
               >
-                Prepare all thumbnails
+                {prepared ? "Re-check thumbnails" : "Prepare all thumbnails"}
               </button>
             )
+          ) : null}
+          {view === "grid" && prepared && !preparing ? (
+            <span className="text-xs text-ink-muted">
+              {prepared.generated.toLocaleString()} new ·{" "}
+              {prepared.cached.toLocaleString()} cached ·{" "}
+              {prepared.noImage.toLocaleString()} without art
+            </span>
+          ) : null}
+          {view === "grid" ? (
+            <button
+              type="button"
+              disabled={censusBusy}
+              onClick={() => void runCensus()}
+              title="List what the packages without thumbnails actually contain"
+              className="rounded-control border border-border-subtle px-2.5 py-1 text-xs text-ink-secondary transition hover:border-gold/60"
+            >
+              {censusBusy ? "Diagnosing…" : "Diagnose blanks"}
+            </button>
           ) : null}
         </div>
         <div
@@ -419,6 +455,56 @@ export function Library(props: { initialSearch?: string }) {
           ))}
         </div>
       </Card>
+
+      {census ? (
+        <Card>
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="text-xs leading-relaxed text-ink-secondary">
+              Resource types inside the{" "}
+              <span className="font-semibold">imageless</span> packages — copy
+              this table and send it to your builder; it names exactly what
+              the blanks contain, so decoding expands on evidence instead of
+              guesses.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                const tsv = census
+                  .map((r) => `${r.typeHex}\t${r.name}\t${r.files}`)
+                  .join("\n");
+                navigator.clipboard
+                  .writeText(tsv)
+                  .then(() => {
+                    setCensusCopied(true);
+                    setTimeout(() => setCensusCopied(false), 2000);
+                  })
+                  .catch(() => {});
+              }}
+              className="shrink-0 text-xs font-semibold text-sage-deep"
+            >
+              {censusCopied ? "Copied ✓" : "Copy table"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setCensus(null)}
+              className="shrink-0 text-xs font-semibold text-sage-deep"
+            >
+              Dismiss
+            </button>
+          </div>
+          <div className="mt-2 font-mono text-[11px] leading-relaxed text-ink">
+            {census.map((r) => (
+              <div key={r.typeHex} className="flex gap-3">
+                <span className="w-28 shrink-0">{r.typeHex}</span>
+                <span className="min-w-0 flex-1 truncate">{r.name}</span>
+                <span className="shrink-0 text-ink-muted">
+                  {r.files.toLocaleString()} pkgs
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
 
       {rows.length === 0 && !loading ? (
         <EmptyState
