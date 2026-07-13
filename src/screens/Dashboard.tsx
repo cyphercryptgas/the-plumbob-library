@@ -176,14 +176,25 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
         return;
       let done = 0;
       let resources = 0;
+      let filesMerged = 0;
+      const failures: string[] = [];
       for (const g of plan.groups) {
-        const out = await mergeFiles(g.fileIds, g.label);
-        done += 1;
-        resources += out.stats.resourcesOut;
-        setQuickNote(`Merging… ${done}/${plan.groups.length} (${g.label})`);
+        setQuickNote(`Merging… ${done + failures.length + 1}/${plan.groups.length} (${g.label})`);
+        try {
+          const out = await mergeFiles(g.fileIds, g.label);
+          done += 1;
+          resources += out.stats.resourcesOut;
+          filesMerged += out.stats.sources;
+        } catch (e) {
+          failures.push(`${g.label} — ${String(e).slice(0, 90)}`);
+        }
       }
       setQuickNote(
-        `Auto-merge complete: ${plan.totalFiles.toLocaleString()} packages → ${plan.groups.length} merged files (${resources.toLocaleString()} resources). Run a Scan to see them.`
+        `Auto-merge finished: ${filesMerged.toLocaleString()} packages → ${done} merged files (${resources.toLocaleString()} resources)` +
+          (failures.length > 0
+            ? `; ${failures.length} group(s) skipped: ${failures.slice(0, 2).join("; ")}${failures.length > 2 ? "; …" : ""}`
+            : "") +
+          ". Run a Scan to see them."
       );
     } catch (e) {
       reportError(String(e));

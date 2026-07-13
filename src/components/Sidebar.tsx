@@ -231,7 +231,7 @@ export function Sidebar(props: {
         />
       </div>
 
-      <nav className="relative flex-1 space-y-0.5 overflow-y-auto px-3" aria-label="Main">
+      <nav className="relative flex-1 space-y-0.5 overflow-y-auto px-3 py-1" aria-label="Main">
         {NAV.map((item) => {
           const active = props.route === item.route;
           const count = badge(item.route);

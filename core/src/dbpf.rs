@@ -697,11 +697,25 @@ pub fn read_casp_payload(path: &Path) -> Result<Option<Vec<u8>>, DbpfError> {
 /// friends) are fine in-game but can't be merged faithfully — those
 /// packages stay loose.
 pub fn package_fully_readable(path: &Path) -> Result<bool, DbpfError> {
+    Ok(package_merge_profile(path)?.0)
+}
+
+/// One index read, both merge answers: is every entry decodable, and how
+/// many bytes will this package contribute *decompressed* — the number
+/// the 4 GB DBPF ceiling actually cares about (disk size lies: zlib'd
+/// textures inflate several-fold when re-authored uncompressed).
+pub fn package_merge_profile(path: &Path) -> Result<(bool, u64), DbpfError> {
     let index = read_package_index(path)?;
-    Ok(index
+    let readable = index
         .entries
         .iter()
-        .all(|e| e.compression == 0 || e.compression == COMP_ZLIB))
+        .all(|e| e.compression == 0 || e.compression == COMP_ZLIB);
+    let uncompressed: u64 = index
+        .entries
+        .iter()
+        .map(|e| u64::from(e.mem_size) + 32)
+        .sum();
+    Ok((readable, uncompressed))
 }
 
 /// Merge statistics — the receipt a merge owes its user.
@@ -1111,6 +1125,17 @@ mod thumb_tests {
         let src = build_package(&[(0x1234, 0x5A42, b"not-zlib-at-all", 15)]);
         let (_d, p) = write_tmp(&src);
         assert!(read_package_resources(&p, MERGE_ENTRY_CAP).is_err());
+    }
+
+    #[test]
+    fn merge_profile_reports_decompressed_size() {
+        let raw = vec![7u8; 10_000];
+        let z = zlib(&raw);
+        let src = build_package(&[(0x1111, 0x5A42, &z, raw.len() as u32)]);
+        let (_d, p) = write_tmp(&src);
+        let (readable, bytes) = package_merge_profile(&p).unwrap();
+        assert!(readable);
+        assert_eq!(bytes, 10_000 + 32, "budget = mem_size, not disk size");
     }
 
     #[test]

@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.0.0 — The Bow
+
+Motherlode Manager is complete. From a folder scanner with a safety
+journal to a full library: reference-exact package understanding,
+thumbnails decoded from EA's own shuffle, creators credited and
+browsable, a CurseForge radar that names its confidence, an updater
+that unpacks archives and tells the truth afterwards, and a DBPF
+writer that merges your collection creator-by-creator — every
+destructive step journaled, snapshotted, and reversible. The history
+below tells the whole story, defect confessions included.
+
+
+## 0.27.5 — Disk Bytes Lie
+
+* **The 4 GB wall, root-caused: the planner budgeted disk bytes; the
+  writer's ceiling is decompressed bytes.** Merged entries store
+  uncompressed, and zlib'd texture packages inflate several-fold — a
+  1.2 GB group of sources can legitimately exceed 4 GB re-authored. The
+  package index already knows every entry's decompressed size, so the
+  planner now budgets on true mem_size totals (from the same index read
+  the pre-flight already does) with a 3 GB per-output cap — a full
+  gigabyte of margin.
+* **One failing group no longer abandons the run.** The auto-merge loop
+  records each group's failure, continues, and the final receipt counts
+  successes and names the skipped groups.
+* **Sidebar hover ring, unclipped**: the first item's gold hover frame
+  painted above the scroll container's top edge; the nav has headroom
+  now, top and bottom.
+
 ## 0.27.4 — Creator-First Merging
 
 * **The planner and the executor stopped contradicting each other**: a

@@ -2407,7 +2407,9 @@ pub fn plan_auto_merge(dbm: &Mutex<Database>) -> UiResult<AutoMergePlan> {
         db::files::auto_merge_survey(guard.conn()).map_err(err_str)?
     };
     const MAX_FILES: usize = 400;
-    const MAX_BYTES: i64 = 1_200_000_000;
+    // Decompressed budget per output: a full gigabyte of margin under the
+    // 4 GB DBPF ceiling, because entries are stored uncompressed.
+    const MAX_BYTES: i64 = 3_000_000_000;
     let cat_label = |c: &Option<String>| match c.as_deref() {
         Some("cas") => "CAS",
         Some("buildbuy") => "BuildBuy",
@@ -2422,8 +2424,8 @@ pub fn plan_auto_merge(dbm: &Mutex<Database>) -> UiResult<AutoMergePlan> {
     let mut unreadable_names: Vec<String> = Vec::new();
     for (id, cat, size, abs, creator, display) in &survey.eligible {
         let path = std::path::Path::new(abs);
-        match plumbob_core::dbpf::package_fully_readable(path) {
-            Ok(true) => {
+        match plumbob_core::dbpf::package_merge_profile(path) {
+            Ok((true, uncompressed)) => {
                 let label = match (creator, display) {
                     (Some(c), _) if !c.is_empty() => display
                         .clone()
@@ -2431,7 +2433,8 @@ pub fn plan_auto_merge(dbm: &Mutex<Database>) -> UiResult<AutoMergePlan> {
                         .unwrap_or_else(|| c.clone()),
                     _ => cat_label(cat).to_string(),
                 };
-                buckets.entry(label).or_default().push((*id, *size));
+                let _ = size;
+                buckets.entry(label).or_default().push((*id, uncompressed as i64));
             }
             _ => {
                 skipped_unreadable += 1;
