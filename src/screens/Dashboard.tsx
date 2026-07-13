@@ -670,19 +670,19 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
                 disabled={scan.running}
               />
               <ActionTile
-                icon="duplicates"
+                icon="merge"
                 label={quickBusy === "merge" ? "Merging…" : "Merge packages"}
                 onClick={() => void runAutoMerge()}
                 disabled={quickBusy !== null}
               />
               <ActionTile
-                icon="library"
+                icon="image"
                 label={quickBusy === "thumbs" ? "Preparing…" : "Prepare thumbnails"}
                 onClick={() => void runPrepareThumbs()}
                 disabled={quickBusy !== null}
               />
               <ActionTile
-                icon="calendar"
+                icon="radar"
                 label={quickBusy === "radar" ? "Checking…" : "Update radar"}
                 onClick={() => void runRadar()}
                 disabled={quickBusy !== null}

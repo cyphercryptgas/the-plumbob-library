@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.27.1 — Emblems & the Starved Thumbnails
+
+* **Quick actions wear their purposes**: three new icons drawn for the
+  job — converging arrows into a package for Merge, a picture frame for
+  Prepare thumbnails, a sweep-arm dial for Update radar.
+* **Up-to-date rows get their images back.** The thumbnail budget was
+  spent in raw status order, where thousands of unmatched rows (NULL
+  mod names sort early) starved the up-to-date section entirely.
+  Matched rows now load first, then a slice of unmatched for that view.
+
+
 ## 0.27.0 — The Working Dashboard
 
 * **Quick actions now act.** Three navigation shortcuts became three

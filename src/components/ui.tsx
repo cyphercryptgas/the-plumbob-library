@@ -305,9 +305,32 @@ export type IconName =
   | "file" | "database" | "package" | "code" | "archive" | "alert"
   | "lock" | "help" | "sparkle"
   | "search"
-  | "target";
+  | "target"
+  | "merge" | "image" | "radar";
 
 const ICON_PATHS: Record<IconName, ReactNode> = {
+  merge: (
+    <>
+      <path d="M4 5h4l4 5 4-5h4" />
+      <path d="M12 10v4" />
+      <rect x="8" y="14" width="8" height="6" rx="1.5" />
+    </>
+  ),
+  image: (
+    <>
+      <rect x="4" y="5" width="16" height="14" rx="2" />
+      <circle cx="9" cy="10" r="1.6" />
+      <path d="M5 17l5-5 4 4 3-3 3 3" />
+    </>
+  ),
+  radar: (
+    <>
+      <path d="M12 12L18 6" />
+      <path d="M12 3a9 9 0 1 0 9 9" />
+      <path d="M12 7a5 5 0 1 0 5 5" />
+      <circle cx="12" cy="12" r="1" />
+    </>
+  ),
   dashboard: (
     <>
       <path d="M4 14a8 8 0 0 1 16 0" />

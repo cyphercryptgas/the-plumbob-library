@@ -148,7 +148,17 @@ export function PatchCenter(props: { onOpenInLibrary: (q: string) => void; onNav
   const checkedAt = rows.find((r) => r.checkedAt)?.checkedAt ?? null;
 
   useEffect(() => {
-    const ids = rows.map((r) => r.fileId).slice(0, 400);
+    // Matched rows first: the raw status order floods the budget with
+    // NULL-name unmatched rows (NULLs sort early), starving the
+    // up-to-date section of its thumbnails.
+    const matchedIds = rows
+      .filter((r) => r.curseModId != null)
+      .map((r) => r.fileId);
+    const unmatchedIds = rows
+      .filter((r) => r.curseModId == null)
+      .map((r) => r.fileId)
+      .slice(0, 300);
+    const ids = [...matchedIds, ...unmatchedIds].slice(0, 800);
     const missing = ids.filter((id) => !(id in thumbs));
     if (missing.length === 0) return;
     let alive = true;
