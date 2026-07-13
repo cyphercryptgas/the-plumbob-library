@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.24.0 — The Updater, For Real
+
+* **Archive-aware updating.** The field verdict was blunt: CurseForge CC
+  ships overwhelmingly as .zip even when it holds one package, so the
+  single-file gate made the Updater ornamental. Zips are now unpacked in
+  memory: junk entries ignored, exactly one usable file wins, multiple
+  candidates resolve by matching your filename — and genuine ambiguity
+  is an honest wall, never a guess. Cross-type swaps are refused; the
+  extracted bytes still face the magic check.
+* **The Conflicts surprise, explained and disarmed.** An update swaps
+  *contents*, and a new version can legitimately share resources with a
+  sibling you already had — an ≈-match hazard the old code neither
+  detected nor mentioned, while also leaving the resource index stale.
+  Now every update re-indexes the package immediately, records the true
+  hash and size, and the outcome names any overlap on the spot
+  ("shares resources with …") instead of letting Conflicts ambush you.
+* **Creator tags are clickable** — the click-through I owed: any gold
+  pill in the Library, grid or list, jumps to that creator's page with
+  their catalog open.
+
+
 ## 0.23.1 — Type Discipline
 
 * Fixed the shell compile error the Windows installer caught: the

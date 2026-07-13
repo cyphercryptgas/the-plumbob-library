@@ -932,3 +932,48 @@ pub fn resource_type_census(
     conn.execute("DELETE FROM census_ids", [])?;
     Ok(rows)
 }
+
+/// Replace one file's resource rows — the post-update truth pass.
+pub fn refresh_file_resources(
+    conn: &Connection,
+    file_id: i64,
+    keys: &[(u32, u32, u64)],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM package_resources WHERE file_id = ?1",
+        params![file_id],
+    )?;
+    let mut stmt = conn.prepare(
+        "INSERT INTO package_resources (file_id, type_id, group_id, instance)
+         VALUES (?1, ?2, ?3, ?4)",
+    )?;
+    for (t, g, i) in keys {
+        stmt.execute(params![file_id, t, g, *i as i64])?;
+    }
+    Ok(())
+}
+
+/// Which other current files share resources with this one — the
+/// heads-up an update owes you when new contents overlap a sibling.
+pub fn overlapping_files(
+    conn: &Connection,
+    file_id: i64,
+) -> Result<Vec<(String, i64)>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT f2.current_filename, COUNT(*) AS shared
+         FROM package_resources r1
+         JOIN package_resources r2
+           ON r1.type_id = r2.type_id AND r1.group_id = r2.group_id
+          AND r1.instance = r2.instance AND r2.file_id <> r1.file_id
+         JOIN files f2 ON f2.id = r2.file_id
+          AND f2.missing = 0 AND f2.status = 'current'
+         WHERE r1.file_id = ?1
+         GROUP BY r2.file_id
+         ORDER BY shared DESC
+         LIMIT 5",
+    )?;
+    let rows = stmt
+        .query_map(params![file_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}

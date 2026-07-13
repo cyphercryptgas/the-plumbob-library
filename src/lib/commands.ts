@@ -243,6 +243,7 @@ export interface UpdateOutcome {
   fileId: number;
   bytes: number;
   fileName: string;
+  overlaps: string[];
 }
 
 export const applyUpdate = (fileId: number) =>

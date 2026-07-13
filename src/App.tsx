@@ -38,6 +38,8 @@ function Screen(props: {
   route: Route;
   onNavigate: (r: Route) => void;
   libSeed: { q: string; n: number };
+  creatorSeed: { key: string; n: number };
+  onOpenCreator: (key: string) => void;
 }) {
   switch (props.route) {
     case "dashboard":
@@ -45,10 +47,11 @@ function Screen(props: {
     case "settings":
       return <Settings />;
     case "creators":
-      return <Creators />;
+      return <Creators seed={props.creatorSeed} />;
     case "library":
       return (
         <Library
+          onOpenCreator={props.onOpenCreator}
           key={props.libSeed.n}
           initialSearch={props.libSeed.q || undefined}
         />
@@ -78,6 +81,11 @@ function Shell() {
   const [route, setRoute] = useState<Route>("dashboard");
   const [searchDraft, setSearchDraft] = useState("");
   const [libSeed, setLibSeed] = useState({ q: "", n: 0 });
+  const [creatorSeed, setCreatorSeed] = useState({ key: "", n: 0 });
+  const openCreator = (key: string) => {
+    setCreatorSeed((s) => ({ key, n: s.n + 1 }));
+    setRoute("creators");
+  };
 
   const submitSearch = () => {
     const q = searchDraft.trim();
@@ -159,7 +167,13 @@ function Shell() {
               </Banner>
             </div>
           ) : null}
-            <Screen route={route} onNavigate={setRoute} libSeed={libSeed} />
+            <Screen
+              route={route}
+              onNavigate={setRoute}
+              libSeed={libSeed}
+              creatorSeed={creatorSeed}
+              onOpenCreator={openCreator}
+            />
           </div>
         </div>
       </div>

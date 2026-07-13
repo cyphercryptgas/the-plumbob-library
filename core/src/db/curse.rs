@@ -460,7 +460,12 @@ pub fn match_for_file(
 
 /// After a successful swap: the installed copy IS the latest now, the
 /// hash is stale (next scan re-fingerprints), and the update flag clears.
-pub fn mark_updated(conn: &Connection, file_id: i64) -> Result<(), DbError> {
+pub fn mark_updated(
+    conn: &Connection,
+    file_id: i64,
+    sha256: &str,
+    size_bytes: i64,
+) -> Result<(), DbError> {
     conn.execute(
         "UPDATE curse_matches
          SET matched_file_name = latest_file_name,
@@ -471,8 +476,8 @@ pub fn mark_updated(conn: &Connection, file_id: i64) -> Result<(), DbError> {
         params![file_id],
     )?;
     conn.execute(
-        "UPDATE files SET sha256 = NULL WHERE id = ?1",
-        params![file_id],
+        "UPDATE files SET sha256 = ?2, size_bytes = ?3 WHERE id = ?1",
+        params![file_id, sha256, size_bytes],
     )?;
     Ok(())
 }

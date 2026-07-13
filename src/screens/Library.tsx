@@ -97,7 +97,8 @@ const TYPE_TONES: Record<string, "sage" | "blue" | "rose" | "neutral" | "warning
   unsupported: "warning",
 };
 
-export function Library(props: { initialSearch?: string }) {
+export function Library(props: {
+  onOpenCreator: (key: string) => void; initialSearch?: string }) {
   const { libraryVersion, reportError } = useApp();
   const [search, setSearch] = useState(props.initialSearch ?? "");
   const [query, setQuery] = useState(props.initialSearch?.trim() ?? "");
@@ -586,12 +587,22 @@ export function Library(props: { initialSearch?: string }) {
                       {f.currentFilename}
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      {f.creatorDisplay ? (
-                        <Pill tone="gold" title={`Creator: ${f.creatorDisplay}`}>
-                          <span className="max-w-[110px] truncate">
-                            {f.creatorDisplay}
-                          </span>
-                        </Pill>
+                      {f.creatorDisplay && f.creator ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            props.onOpenCreator(f.creator as string);
+                          }}
+                          title={`See everything by ${f.creatorDisplay}`}
+                          className="cursor-pointer"
+                        >
+                          <Pill tone="gold">
+                            <span className="max-w-[110px] truncate">
+                              {f.creatorDisplay}
+                            </span>
+                          </Pill>
+                        </button>
                       ) : null}
                       {f.casSubcategory && SUB_BADGE[f.casSubcategory] ? (
                         <Pill tone="sage">{SUB_BADGE[f.casSubcategory]}</Pill>
@@ -693,12 +704,22 @@ export function Library(props: { initialSearch?: string }) {
                     </td>
                     <td className="px-3 py-2">
                       <span className="flex flex-wrap gap-1">
-                        {f.creatorDisplay ? (
-                          <Pill tone="gold" title={`Creator: ${f.creatorDisplay}`}>
-                            <span className="max-w-[140px] truncate">
-                              {f.creatorDisplay}
-                            </span>
-                          </Pill>
+                        {f.creatorDisplay && f.creator ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              props.onOpenCreator(f.creator as string);
+                            }}
+                            title={`See everything by ${f.creatorDisplay}`}
+                            className="cursor-pointer"
+                          >
+                            <Pill tone="gold">
+                              <span className="max-w-[140px] truncate">
+                                {f.creatorDisplay}
+                              </span>
+                            </Pill>
+                          </button>
                         ) : null}
                         {f.casSubcategory && SUB_BADGE[f.casSubcategory] ? (
                           <Pill tone="sage">{SUB_BADGE[f.casSubcategory]}</Pill>

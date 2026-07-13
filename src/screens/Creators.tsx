@@ -195,11 +195,21 @@ function CreatorWorks(props: { creatorKey: string; display: string }) {
   );
 }
 
-export function Creators() {
+export function Creators(props: { seed?: { key: string; n: number } }) {
   const { reportError } = useApp();
   const [roster, setRoster] = useState<api.CreatorRow[] | null>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<api.CreatorRow | null>(null);
+
+  useEffect(() => {
+    if (!props.seed?.key || !roster) return;
+    const hit = roster.find((r) => r.key === props.seed?.key);
+    if (hit) {
+      setQuery("");
+      setSelected(hit);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.seed?.n, roster]);
 
   useEffect(() => {
     let alive = true;

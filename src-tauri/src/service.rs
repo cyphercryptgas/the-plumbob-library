@@ -1921,6 +1921,104 @@ pub struct UpdateOutcome {
     pub file_id: i64,
     pub bytes: usize,
     pub file_name: String,
+    /// Files the new contents share resources with — the heads-up an
+    /// update owes you before Conflicts delivers it as a surprise.
+    pub overlaps: Vec<String>,
+}
+
+fn stem_of(name: &str) -> String {
+    let lower = name.to_lowercase();
+    let base = lower.rsplit(['/', '\\']).next().unwrap_or(&lower);
+    base.trim_end_matches(".package")
+        .trim_end_matches(".ts4script")
+        .trim_end_matches(".zip")
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect()
+}
+
+/// The bytes to install, whether the release is a bare file or a zip.
+/// Zips: junk entries are ignored; exactly one usable entry wins, or the
+/// one whose name matches ours — genuine ambiguity is an honest wall.
+fn select_release_bytes(
+    downloaded: Vec<u8>,
+    latest_name: &str,
+    our_name: &str,
+    expect_ext: &str,
+) -> Result<Vec<u8>, String> {
+    let lower = latest_name.to_lowercase();
+    if lower.ends_with(".package") || lower.ends_with(".ts4script") {
+        if !lower.ends_with(expect_ext) {
+            return Err(format!(
+                "The latest release is a {} but this file is a {expect_ext} — \
+                 not swapping across types.",
+                if lower.ends_with(".package") { ".package" } else { ".ts4script" }
+            ));
+        }
+        return Ok(downloaded);
+    }
+    if !lower.ends_with(".zip") {
+        return Err(format!(
+            "The latest release is \"{latest_name}\" — a format the updater \
+             doesn't handle. Open Mod to fetch it yourself."
+        ));
+    }
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(downloaded))
+        .map_err(|e| format!("Could not open the release archive: {e}"))?;
+    let mut candidates: Vec<(usize, String)> = Vec::new();
+    for i in 0..archive.len() {
+        let entry = archive
+            .by_index(i)
+            .map_err(|e| format!("Archive entry unreadable: {e}"))?;
+        if entry.is_dir() {
+            continue;
+        }
+        let name = entry.name().to_string();
+        let lname = name.to_lowercase();
+        if lname.contains("__macosx") || lname.rsplit('/').next().map_or(false, |b| b.starts_with('.')) {
+            continue;
+        }
+        if lname.ends_with(expect_ext) {
+            candidates.push((i, name));
+        }
+    }
+    let chosen = match candidates.len() {
+        0 => {
+            return Err(format!(
+                "The archive contains no {expect_ext} files — Open Mod to see \
+                 what the author shipped."
+            ))
+        }
+        1 => candidates[0].0,
+        _ => {
+            let ours = stem_of(our_name);
+            let matches: Vec<&(usize, String)> = candidates
+                .iter()
+                .filter(|(_, n)| {
+                    let s = stem_of(n);
+                    s == ours || s.contains(&ours) || ours.contains(&s)
+                })
+                .collect();
+            match matches.len() {
+                1 => matches[0].0,
+                _ => {
+                    return Err(format!(
+                        "The archive holds {} {expect_ext} files and none of \
+                         them clearly matches yours — Open Mod to choose for \
+                         yourself.",
+                        candidates.len()
+                    ))
+                }
+            }
+        }
+    };
+    let mut entry = archive
+        .by_index(chosen)
+        .map_err(|e| format!("Archive entry unreadable: {e}"))?;
+    let mut out = Vec::with_capacity(entry.size() as usize);
+    std::io::Read::read_to_end(&mut entry, &mut out)
+        .map_err(|e| format!("Could not extract from the archive: {e}"))?;
+    Ok(out)
 }
 
 /// Apply one update: download the latest release, verify it looks like
@@ -1954,16 +2052,9 @@ pub fn apply_update(dbm: &Mutex<Database>, data_dir: &Path, file_id: i64) -> UiR
     if !update_available {
         return Err("That file is already up to date.".to_string());
     }
-    let lower = latest_file_name.to_lowercase();
-    let expects_package = lower.ends_with(".package");
-    let expects_script = lower.ends_with(".ts4script");
-    if !(expects_package || expects_script) {
-        return Err(format!(
-            "The latest release is packaged as \"{latest_file_name}\" — an archive \
-             rather than a single file. Open Mod to fetch it yourself; \
-             archive-aware updating is on the roadmap."
-        ));
-    }
+    let our_lower = absolute.to_lowercase();
+    let expects_package = our_lower.ends_with(".package");
+    let expect_ext = if expects_package { ".package" } else { ".ts4script" };
 
     let client = crate::curse_api::CurseClient::new(&key)?;
     let detail = client.get_file(mod_id, latest_file_id)?;
@@ -1972,7 +2063,13 @@ pub fn apply_update(dbm: &Mutex<Database>, data_dir: &Path, file_id: i64) -> UiR
          use Open Mod to update by hand."
             .to_string()
     })?;
-    let bytes = client.download(&url, 500 * 1024 * 1024)?;
+    let downloaded = client.download(&url, 500 * 1024 * 1024)?;
+    let bytes = select_release_bytes(
+        downloaded,
+        &latest_file_name,
+        &absolute,
+        expect_ext,
+    )?;
     let looks_right = if expects_package {
         bytes.len() >= 4 && &bytes[..4] == b"DBPF"
     } else {
@@ -2009,13 +2106,36 @@ pub fn apply_update(dbm: &Mutex<Database>, data_dir: &Path, file_id: i64) -> UiR
         format!("Could not swap the file into place: {e}")
     })?;
 
+    // Post-update truth: the row's hash and size reflect what's on disk,
+    // the resource index reflects the new contents, and any overlap with
+    // siblings is reported here instead of ambushing you in Conflicts.
+    let sha = plumbob_core::hashing::sha256_bytes(&bytes);
+    let mut overlaps: Vec<String> = Vec::new();
     {
         let guard = lock_db(dbm)?;
-        db::curse::mark_updated(guard.conn(), file_id).map_err(err_str)?;
+        db::curse::mark_updated(guard.conn(), file_id, &sha, bytes.len() as i64)
+            .map_err(err_str)?;
+        if expects_package {
+            if let Ok(index) = plumbob_core::dbpf::read_package_index(target) {
+                let keys: Vec<(u32, u32, u64)> = index
+                    .keys
+                    .iter()
+                    .map(|k| (k.type_id, k.group_id, k.instance))
+                    .collect();
+                db::packages::refresh_file_resources(guard.conn(), file_id, &keys)
+                    .map_err(err_str)?;
+                overlaps = db::packages::overlapping_files(guard.conn(), file_id)
+                    .map_err(err_str)?
+                    .into_iter()
+                    .map(|(name, shared)| format!("{name} ({shared} shared)"))
+                    .collect();
+            }
+        }
     }
     Ok(UpdateOutcome {
         file_id,
         bytes: bytes.len(),
         file_name: latest_file_name,
+        overlaps,
     })
 }

@@ -29,6 +29,7 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
   const [checking, setChecking] = useState(false);
   const [reverifying, setReverifying] = useState(false);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
+  const [updateNote, setUpdateNote] = useState<string | null>(null);
   const [reverified, setReverified] = useState<ReverifyOutcome | null>(null);
   const [progress, setProgress] = useState<PatchProgressEvent | null>(null);
   const [summary, setSummary] = useState<PatchCheckSummary | null>(null);
@@ -74,8 +75,14 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
 
   const update = async (fileId: number) => {
     setUpdatingId(fileId);
+    setUpdateNote(null);
     try {
-      await applyUpdate(fileId);
+      const outcome = await applyUpdate(fileId);
+      setUpdateNote(
+        outcome.overlaps.length > 0
+          ? `Updated ${outcome.fileName}. Heads-up: the new version shares resources with ${outcome.overlaps.join(", ")} — see Conflicts if that's unexpected.`
+          : `Updated ${outcome.fileName} — backup saved to Activity.`
+      );
       await refresh();
     } catch (e) {
       reportError(e);
@@ -205,6 +212,9 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
               />
             </div>
           </div>
+        ) : null}
+        {updateNote ? (
+          <p className="text-xs text-ink-secondary">{updateNote}</p>
         ) : null}
         {reverified ? (
           <p className="text-xs text-ink-secondary">
@@ -336,7 +346,7 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
                   </Pill>
                 ) : null}
                 {!r.enabled ? <Pill tone="neutral">off</Pill> : null}
-                {/\.(package|ts4script)$/i.test(r.latestFileName ?? "") ? (
+                {/\.(package|ts4script|zip)$/i.test(r.latestFileName ?? "") ? (
                   <Button
                     disabled={updatingId !== null}
                     title="Download the latest release, back up your copy, and swap it in"
@@ -348,7 +358,7 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
                   <Button
                     disabled
                     variant="quiet"
-                    title="The latest release is an archive — Open Mod to fetch it yourself"
+                    title="The latest release is a format the updater doesn't handle — Open Mod to fetch it yourself"
                   >
                     Update
                   </Button>
