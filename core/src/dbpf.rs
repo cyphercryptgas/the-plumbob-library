@@ -597,10 +597,14 @@ pub fn extract_thumbnail(path: &Path) -> Result<Option<(Vec<u8>, &'static str)>,
     Ok(None)
 }
 
-/// Read one resource's payload: seek, read, and decompress by declared
-/// codec. `None` on any IO trouble or an unsupported codec — callers skip.
-pub fn read_entry_payload(file: &mut File, entry: &EntryMeta) -> Option<Vec<u8>> {
-    if u64::from(entry.size) > MAX_THUMB_BYTES || u64::from(entry.mem_size) > MAX_THUMB_BYTES {
+/// Read one resource's payload with an explicit ceiling. `None` on any
+/// IO trouble, an unsupported codec, or an entry beyond the cap.
+pub fn read_entry_payload_cap(
+    file: &mut File,
+    entry: &EntryMeta,
+    cap: u64,
+) -> Option<Vec<u8>> {
+    if u64::from(entry.size) > cap || u64::from(entry.mem_size) > cap {
         return None;
     }
     file.seek(SeekFrom::Start(u64::from(entry.position))).ok()?;
@@ -612,11 +616,43 @@ pub fn read_entry_payload(file: &mut File, entry: &EntryMeta) -> Option<Vec<u8>>
             use std::io::Read as _;
             let mut out = Vec::with_capacity(entry.mem_size as usize);
             let mut dec = flate2::read::ZlibDecoder::new(raw.as_slice());
-            dec.by_ref().take(MAX_THUMB_BYTES).read_to_end(&mut out).ok()?;
+            dec.by_ref().take(cap).read_to_end(&mut out).ok()?;
             Some(out)
         }
         _ => None,
     }
+}
+
+/// Thumbnail-sized reads — the historical default. The merge pipeline
+/// uses its own, much larger ceiling: a Build/Buy texture is not a
+/// thumbnail, which the field taught us the hard way.
+pub fn read_entry_payload(file: &mut File, entry: &EntryMeta) -> Option<Vec<u8>> {
+    read_entry_payload_cap(file, entry, MAX_THUMB_BYTES)
+}
+
+/// Per-entry ceiling for merges: generous, but still a guard.
+pub const MERGE_ENTRY_CAP: u64 = 512 * 1024 * 1024;
+
+/// Every resource in a package, fully decompressed, or an error naming
+/// the trouble — the per-file unit the tolerant merge is built on.
+pub fn read_package_resources(
+    path: &Path,
+    cap: u64,
+) -> Result<Vec<((u32, u32, u64), Vec<u8>)>, DbpfError> {
+    let index = read_package_index(path)?;
+    let mut file = File::open(path)?;
+    let mut out = Vec::with_capacity(index.keys.len());
+    for (key, entry) in index.keys.iter().zip(index.entries.iter()) {
+        let payload = read_entry_payload_cap(&mut file, entry, cap).ok_or_else(|| {
+            DbpfError::CorruptIndex(format!(
+                "unreadable resource 0x{:08X} in {}",
+                key.type_id,
+                path.display()
+            ))
+        })?;
+        out.push(((key.type_id, key.group_id, key.instance), payload));
+    }
+    Ok(out)
 }
 
 /// Up to `max_n` CASP payloads from one package — a part's swatches all
@@ -728,18 +764,11 @@ pub fn merge_packages(paths: &[&Path]) -> Result<(Vec<u8>, MergeStats), DbpfErro
         collisions: 0,
     };
     for path in paths {
-        let index = read_package_index(path)?;
-        let mut file = File::open(path)?;
-        for (key, entry) in index.keys.iter().zip(index.entries.iter()) {
-            let payload = read_entry_payload(&mut file, entry).ok_or_else(|| {
-                DbpfError::CorruptIndex(format!(
-                    "unreadable resource 0x{:08X} in {} — merge aborted, nothing written",
-                    key.type_id,
-                    path.display()
-                ))
-            })?;
+        let resources = read_package_resources(path, MERGE_ENTRY_CAP).map_err(|e| {
+            DbpfError::CorruptIndex(format!("{e} — merge aborted, nothing written"))
+        })?;
+        for (k, payload) in resources {
             stats.resources_in += 1;
-            let k = (key.type_id, key.group_id, key.instance);
             if map.insert(k, payload).is_some() {
                 stats.collisions += 1;
             }
@@ -1058,6 +1087,30 @@ mod thumb_tests {
             _ => unreachable!(),
         }
         out
+    }
+
+    #[test]
+    fn entries_larger_than_thumb_cap_still_merge() {
+        // The field bug: a Build/Buy texture bigger than the thumbnail
+        // reader's ceiling must pass the merge pipeline untouched.
+        let big = vec![0xA7u8; (MAX_THUMB_BYTES + 1024) as usize];
+        let src = build_package(&[(0x00B2_D882, 0, &big, big.len() as u32)]);
+        let (_d1, p1) = write_tmp(&src);
+        let resources = read_package_resources(&p1, MERGE_ENTRY_CAP).unwrap();
+        assert_eq!(resources.len(), 1);
+        assert_eq!(resources[0].1.len(), big.len());
+        let (bytes, stats) = merge_packages(&[p1.as_path()]).unwrap();
+        assert_eq!(stats.resources_out, 1);
+        let (_d2, p2) = write_tmp(&bytes);
+        let idx = read_package_index(&p2).unwrap();
+        assert_eq!(idx.entries[0].size as usize, big.len());
+    }
+
+    #[test]
+    fn corrupt_zlib_payload_errors_per_file() {
+        let src = build_package(&[(0x1234, 0x5A42, b"not-zlib-at-all", 15)]);
+        let (_d, p) = write_tmp(&src);
+        assert!(read_package_resources(&p, MERGE_ENTRY_CAP).is_err());
     }
 
     #[test]

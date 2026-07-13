@@ -2245,13 +2245,55 @@ pub fn merge_files(
     };
     let _ = snapshot_label;
 
-    let paths: Vec<std::path::PathBuf> = picked
-        .iter()
-        .map(|(_, abs, _)| std::path::PathBuf::from(abs))
-        .collect();
-    let path_refs: Vec<&Path> = paths.iter().map(|p| p.as_path()).collect();
-    let (bytes, stats) =
-        plumbob_core::dbpf::merge_packages(&path_refs).map_err(|e| e.to_string())?;
+    // Per-file tolerant read: a package whose payloads won't decode is
+    // named and left loose; everything readable merges. Only files that
+    // actually merged are removed afterwards.
+    let mut map: std::collections::BTreeMap<(u32, u32, u64), Vec<u8>> = Default::default();
+    let mut merged: Vec<(i64, String)> = Vec::new();
+    let mut resources_in = 0usize;
+    let mut collisions = 0usize;
+    for (id, abs, _) in &picked {
+        let path = std::path::Path::new(abs);
+        match plumbob_core::dbpf::read_package_resources(
+            path,
+            plumbob_core::dbpf::MERGE_ENTRY_CAP,
+        ) {
+            Ok(resources) => {
+                for (k, payload) in resources {
+                    resources_in += 1;
+                    if map.insert(k, payload).is_some() {
+                        collisions += 1;
+                    }
+                }
+                merged.push((*id, abs.clone()));
+            }
+            Err(_) => skipped.push(
+                path.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| abs.clone()),
+            ),
+        }
+    }
+    if merged.len() < 2 {
+        return Err(format!(
+            "After setting aside {} package(s) whose contents wouldn't decode \
+             ({}), fewer than two remain — nothing merged, nothing removed.",
+            skipped.len(),
+            skipped.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+        ));
+    }
+    let resources: Vec<((u32, u32, u64), Vec<u8>)> = map.into_iter().collect();
+    let total: usize = resources.iter().map(|(_, p)| p.len()).sum();
+    if total as u64 + (resources.len() as u64 * 32) + 200 > u32::MAX as u64 {
+        return Err("The merged package would exceed the 4 GB DBPF limit.".to_string());
+    }
+    let stats = plumbob_core::dbpf::MergeStats {
+        sources: merged.len(),
+        resources_in,
+        resources_out: resources.len(),
+        collisions,
+    };
+    let bytes = plumbob_core::dbpf::write_package(&resources);
 
     let tag: String = label
         .unwrap_or("Batch")
@@ -2279,7 +2321,7 @@ pub fn merge_files(
     // and the Library's current view.
     {
         let guard = lock_db(dbm)?;
-        for (id, abs, _) in &picked {
+        for (id, abs) in &merged {
             std::fs::remove_file(abs)
                 .map_err(|e| format!("Merged file written, but removing an original failed: {e}"))?;
             db::files::mark_removed(guard.conn(), *id).map_err(err_str)?;

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.27.3 — The Thumbnail Cap Confession
+
+* **The merge blocker was never exotic compression — it was a size cap.**
+  The merge borrowed the thumbnail extractor's payload reader, which
+  politely refuses any entry over 16 MB. A Build/Buy texture is not a
+  thumbnail. Payload reads are now cap-parameterized: thumbnails keep
+  their 16 MB ceiling, merges get a 512 MB one, and the regression test
+  proves an over-thumb-cap entry passes the pipeline byte-faithfully.
+* **Merges are per-file tolerant now.** A package whose contents
+  genuinely won't decode (corrupt streams included) is named in the
+  receipt and left loose; everything readable merges; and only files
+  that actually merged are removed. The nothing-partial rule holds for
+  every merged output.
+
+
 ## 0.27.2 — The Missing Element & the Stubborn Package
 
 * **Up-to-date rows finally show images — because the row never had an
