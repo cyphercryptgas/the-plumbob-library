@@ -2161,7 +2161,12 @@ pub struct MergeOutcome {
 /// originals snapshotted to Backups and then removed — a merge is a
 /// restore away from undone. The merged file appears in the Library on
 /// the next scan; the originals leave it immediately.
-pub fn merge_files(dbm: &Mutex<Database>, data_dir: &Path, file_ids: &[i64]) -> UiResult<MergeOutcome> {
+pub fn merge_files(
+    dbm: &Mutex<Database>,
+    data_dir: &Path,
+    file_ids: &[i64],
+    label: Option<&str>,
+) -> UiResult<MergeOutcome> {
     if file_ids.len() < 2 {
         return Err("Pick at least two packages to merge.".to_string());
     }
@@ -2222,8 +2227,15 @@ pub fn merge_files(dbm: &Mutex<Database>, data_dir: &Path, file_ids: &[i64]) -> 
     let (bytes, stats) =
         plumbob_core::dbpf::merge_packages(&path_refs).map_err(|e| e.to_string())?;
 
+    let tag: String = label
+        .unwrap_or("Batch")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(24)
+        .collect();
     let merged_name = format!(
-        "Merged_{}.package",
+        "Merged_{}_{}.package",
+        if tag.is_empty() { "Batch".to_string() } else { tag },
         chrono::Utc::now().format("%Y%m%d_%H%M%S")
     );
     let target = roots_mods_base.join(&merged_name);
@@ -2289,4 +2301,88 @@ pub fn import_snapshots(dbm: &Mutex<Database>, data_dir: &Path) -> UiResult<usiz
         }
     }
     Ok(imported)
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeGroup {
+    pub label: String,
+    pub file_ids: Vec<i64>,
+    pub files: usize,
+    pub bytes: i64,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoMergePlan {
+    pub groups: Vec<MergeGroup>,
+    pub total_files: usize,
+    pub skipped_matched: i64,
+    pub skipped_disabled: i64,
+}
+
+/// Plan the efficient merge: enabled, unmatched packages, bucketed by
+/// category so the outputs stay comprehensible, each part capped in
+/// count and size. Nothing moves here — the plan is shown, then executed
+/// group by group through the same merge path as manual selection.
+pub fn plan_auto_merge(dbm: &Mutex<Database>) -> UiResult<AutoMergePlan> {
+    let survey = {
+        let guard = lock_db(dbm)?;
+        db::files::auto_merge_survey(guard.conn()).map_err(err_str)?
+    };
+    const MAX_FILES: usize = 400;
+    const MAX_BYTES: i64 = 1_200_000_000;
+    let label_of = |c: &Option<String>| match c.as_deref() {
+        Some("cas") => "CAS",
+        Some("buildbuy") => "BuildBuy",
+        Some("animations") => "Poses",
+        Some("gameplay") => "Gameplay",
+        _ => "Other",
+    };
+    let mut buckets: std::collections::BTreeMap<&str, Vec<(i64, i64)>> = Default::default();
+    for (id, cat, size) in &survey.eligible {
+        buckets.entry(label_of(cat)).or_default().push((*id, *size));
+    }
+    let mut groups = Vec::new();
+    let mut total_files = 0usize;
+    for (label, mut items) in buckets {
+        items.sort_by_key(|(id, _)| *id);
+        let mut part = 1usize;
+        let mut cur: Vec<i64> = Vec::new();
+        let mut cur_bytes = 0i64;
+        let mut flush = |cur: &mut Vec<i64>, cur_bytes: &mut i64, part: &mut usize,
+                         groups: &mut Vec<MergeGroup>, total: &mut usize| {
+            if cur.len() >= 2 {
+                groups.push(MergeGroup {
+                    label: if *part == 1 {
+                        label.to_string()
+                    } else {
+                        format!("{label}{part}")
+                    },
+                    files: cur.len(),
+                    bytes: *cur_bytes,
+                    file_ids: std::mem::take(cur),
+                });
+                *total += groups.last().unwrap().files;
+                *part += 1;
+            } else {
+                cur.clear();
+            }
+            *cur_bytes = 0;
+        };
+        for (id, size) in items {
+            if cur.len() >= MAX_FILES || (cur_bytes + size > MAX_BYTES && !cur.is_empty()) {
+                flush(&mut cur, &mut cur_bytes, &mut part, &mut groups, &mut total_files);
+            }
+            cur.push(id);
+            cur_bytes += size;
+        }
+        flush(&mut cur, &mut cur_bytes, &mut part, &mut groups, &mut total_files);
+    }
+    Ok(AutoMergePlan {
+        groups,
+        total_files,
+        skipped_matched: survey.skipped_matched,
+        skipped_disabled: survey.skipped_disabled,
+    })
 }

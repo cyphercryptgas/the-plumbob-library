@@ -1218,3 +1218,42 @@ pub fn mark_removed(conn: &Connection, id: i64) -> Result<(), DbError> {
     )?;
     Ok(())
 }
+
+/// The auto-merge population and what's excluded, in one pass. Eligible:
+/// enabled current packages with no CurseForge match (merged members can
+/// never be individually updated, so matched files stay loose).
+pub struct AutoMergeSurvey {
+    pub eligible: Vec<(i64, Option<String>, i64)>,
+    pub skipped_matched: i64,
+    pub skipped_disabled: i64,
+}
+
+pub fn auto_merge_survey(conn: &Connection) -> Result<AutoMergeSurvey, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT f.id, f.category, f.size_bytes
+         FROM files f LEFT JOIN curse_matches m ON m.file_id = f.id
+         WHERE f.file_type = 'package' AND f.missing = 0
+           AND f.status = 'current' AND f.enabled = 1 AND m.file_id IS NULL",
+    )?;
+    let eligible = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    let skipped_matched: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM files f JOIN curse_matches m ON m.file_id = f.id
+         WHERE f.file_type = 'package' AND f.missing = 0
+           AND f.status = 'current' AND f.enabled = 1",
+        [],
+        |r| r.get(0),
+    )?;
+    let skipped_disabled: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM files WHERE file_type = 'package'
+           AND missing = 0 AND status = 'current' AND enabled = 0",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(AutoMergeSurvey {
+        eligible,
+        skipped_matched,
+        skipped_disabled,
+    })
+}

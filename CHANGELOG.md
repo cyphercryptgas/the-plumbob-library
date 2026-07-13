@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.27.0 — The Working Dashboard
+
+* **Quick actions now act.** Three navigation shortcuts became three
+  workers: **Merge packages** plans the efficient merge — enabled
+  packages with no CurseForge identity (matched files stay loose so
+  they never lose the updater; disabled files stay out so a merge can't
+  silently re-enable them), bucketed by category into comprehensible
+  outputs (Merged_CAS, Merged_BuildBuy…), each part capped in count and
+  size — then shows you the plan and the skip reasons before a single
+  byte moves, and executes group by group through the same journaled,
+  reversible path as manual merges. **Prepare thumbnails** runs the
+  extraction pass with its arithmetic receipt. **Update radar** runs
+  the CurseForge check and reports matched and update counts on the
+  spot.
+* **History wears the images now.** Backup entries and activity steps
+  are joined back to your library rows (content hash first, path as
+  fallback), so both pages show each file's thumbnail beside a readable
+  name — with reason icons on backups, action verbs on steps, and the
+  full paths demoted to fine print instead of leading the row.
+
+
 ## 0.26.0 — The Punch List
 
 * **Backups page, healed at the root.** The listing reads a `backups`

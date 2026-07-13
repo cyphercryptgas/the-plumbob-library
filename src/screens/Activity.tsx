@@ -3,7 +3,25 @@ import * as api from "../lib/commands";
 import { formatDateTime, plural, shortHash } from "../lib/format";
 import type { OperationStepView, OperationView } from "../lib/types";
 import { useApp } from "../state/AppContext";
-import { Card, EmptyState, Pill } from "../components/ui";
+import { Card, EmptyState, Icon, Pill } from "../components/ui";
+import type { IconName } from "../components/ui";
+import { convertFileSrc } from "@tauri-apps/api/core";
+
+const basename = (p: string) => p.split(/[\\/]/).pop() ?? p;
+
+const ACTION_VERB: Record<string, string> = {
+  copy: "Backed up",
+  move: "Moved",
+  restore: "Restored",
+  delete: "Removed",
+};
+
+const TYPE_ICON: Record<string, IconName> = {
+  quarantine: "duplicates",
+  restore_quarantined: "library",
+  snapshot: "backups",
+  restore_from_snapshot: "backups",
+};
 
 const STATUS_TONE: Record<string, "sage" | "warning" | "danger" | "blue"> = {
   completed: "sage",
@@ -25,6 +43,7 @@ export function Activity() {
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState<number | null>(null);
   const [steps, setSteps] = useState<Record<number, OperationStepView[]>>({});
+  const [thumbs, setThumbs] = useState<Record<number, string>>({});
 
   useEffect(() => {
     let alive = true;
@@ -50,6 +69,23 @@ export function Activity() {
         try {
           const list = await api.listOperationSteps(op.id);
           setSteps((s) => ({ ...s, [op.id]: list }));
+          const ids = Array.from(
+            new Set(
+              list
+                .map((s) => s.fileId)
+                .filter((v): v is number => typeof v === "number")
+            )
+          ).slice(0, 60);
+          if (ids.length > 0) {
+            const got = await api.getThumbnails(ids);
+            setThumbs((t) => {
+              const next = { ...t };
+              for (const g of got) {
+                if (g.path) next[g.fileId] = convertFileSrc(g.path);
+              }
+              return next;
+            });
+          }
         } catch (e) {
           reportError(e);
         }
@@ -88,6 +124,12 @@ export function Activity() {
               onClick={() => void toggle(op)}
               aria-expanded={isOpen}
             >
+              <span className="icon-chip flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
+                <Icon
+                  name={TYPE_ICON[op.operationType] ?? "activity"}
+                  size={16}
+                />
+              </span>
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium text-ink">
                   {TYPE_LABEL[op.operationType] ?? op.operationType}
@@ -120,10 +162,23 @@ export function Activity() {
                         className="rounded-control bg-soft px-3 py-2 text-xs"
                       >
                         <div className="flex flex-wrap items-center gap-2">
+                          {step.fileId != null && thumbs[step.fileId] ? (
+                            <img
+                              src={thumbs[step.fileId]}
+                              alt=""
+                              className="h-8 w-8 shrink-0 rounded-md border border-gold/40 object-cover"
+                            />
+                          ) : (
+                            <span className="icon-chip flex h-8 w-8 shrink-0 items-center justify-center rounded-md">
+                              <Icon name="package" size={14} />
+                            </span>
+                          )}
                           <span className="font-semibold text-ink">
-                            {step.stepOrder}.
+                            {basename(step.sourcePath)}
                           </span>
-                          <span className="text-ink-secondary">{step.action}</span>
+                          <span className="text-ink-secondary">
+                            {ACTION_VERB[step.action] ?? step.action}
+                          </span>
                           <Pill
                             tone={step.status === "succeeded" ? "sage" : "danger"}
                           >
@@ -138,7 +193,7 @@ export function Activity() {
                             </span>
                           ) : null}
                         </div>
-                        <div className="mt-1 break-all text-ink-secondary">
+                        <div className="mt-1 break-all text-[11px] text-ink-muted">
                           {step.sourcePath}
                           {step.destinationPath ? (
                             <>

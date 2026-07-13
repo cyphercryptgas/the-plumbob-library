@@ -3,7 +3,18 @@ import * as api from "../lib/commands";
 import { formatBytes, formatDateTime, plural, shortHash } from "../lib/format";
 import type { BackupEntryView, BackupView } from "../lib/types";
 import { useApp } from "../state/AppContext";
-import { Banner, Button, Card, EmptyState, Pill } from "../components/ui";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { Banner, Button, Card, EmptyState, Pill , Icon } from "../components/ui";
+
+const basename = (p: string) => p.split(/[\\/]/).pop() ?? p;
+
+const reasonIcon = (reason: string) => {
+  const r = reason.toLowerCase();
+  if (r.includes("update")) return "calendar" as const;
+  if (r.includes("merge")) return "package" as const;
+  if (r.includes("quarantine")) return "duplicates" as const;
+  return "backups" as const;
+};
 
 export function Backups() {
   const { libraryVersion, isGameRunning, reportError } = useApp();
@@ -16,6 +27,7 @@ export function Backups() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [thumbs, setThumbs] = useState<Record<number, string>>({});
 
   useEffect(() => {
     let alive = true;
@@ -41,6 +53,23 @@ export function Backups() {
         try {
           const list = await api.listBackupEntries(backupId);
           setEntries((e) => ({ ...e, [backupId]: list }));
+          const ids = Array.from(
+            new Set(
+              list
+                .map((en) => en.fileId)
+                .filter((v): v is number => typeof v === "number")
+            )
+          ).slice(0, 80);
+          if (ids.length > 0) {
+            const got = await api.getThumbnails(ids);
+            setThumbs((t) => {
+              const next = { ...t };
+              for (const g of got) {
+                if (g.path) next[g.fileId] = convertFileSrc(g.path);
+              }
+              return next;
+            });
+          }
         } catch (e) {
           reportError(e);
         }
@@ -117,6 +146,9 @@ export function Backups() {
                   onClick={() => void toggleOpen(backup.id)}
                   aria-expanded={isOpen}
                 >
+                  <span className="icon-chip flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
+                    <Icon name={reasonIcon(backup.reason)} size={16} />
+                  </span>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium text-ink">
                       {backup.reason}
@@ -162,12 +194,23 @@ export function Backups() {
                               key={entry.sourcePath}
                               className="flex flex-wrap items-center justify-between gap-2 rounded-control bg-soft px-3 py-2"
                             >
+                              {entry.fileId != null && thumbs[entry.fileId] ? (
+                                <img
+                                  src={thumbs[entry.fileId]}
+                                  alt=""
+                                  className="h-9 w-9 shrink-0 rounded-lg border border-gold/40 object-cover"
+                                />
+                              ) : (
+                                <span className="icon-chip flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
+                                  <Icon name="package" size={14} />
+                                </span>
+                              )}
                               <div className="min-w-0 flex-1">
-                                <div className="break-all text-sm text-ink">
-                                  {entry.sourcePath}
+                                <div className="truncate text-sm text-ink">
+                                  {basename(entry.sourcePath)}
                                 </div>
-                                <div className="text-xs text-ink-muted">
-                                  {formatBytes(entry.sizeBytes)} · fingerprint{" "}
+                                <div className="truncate text-xs text-ink-muted">
+                                  {entry.sourcePath} · {formatBytes(entry.sizeBytes)} ·{" "}
                                   {shortHash(entry.sha256)}
                                 </div>
                               </div>

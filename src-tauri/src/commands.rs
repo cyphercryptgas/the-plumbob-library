@@ -679,13 +679,19 @@ pub async fn apply_update(
 pub async fn merge_files(
     state: State<'_, AppState>,
     file_ids: Vec<i64>,
+    label: Option<String>,
 ) -> UiResult<service::MergeOutcome> {
     if state.scan_in_progress.load(Ordering::SeqCst) {
         return Err("A scan is running. Let it finish before merging.".to_string());
     }
     let db = state.db.clone();
     let data_dir = state.data_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || service::merge_files(&db, &data_dir, &file_ids))
+    tauri::async_runtime::spawn_blocking(move || service::merge_files(&db, &data_dir, &file_ids, label.as_deref()))
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn plan_auto_merge(state: State<'_, AppState>) -> UiResult<service::AutoMergePlan> {
+    service::plan_auto_merge(&state.db)
 }

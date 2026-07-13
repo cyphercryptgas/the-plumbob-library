@@ -261,5 +261,21 @@ export interface MergeOutcome {
   stats: MergeStats;
 }
 
-export const mergeFiles = (fileIds: number[]) =>
-  call<MergeOutcome>("merge_files", { fileIds });
+export const mergeFiles = (fileIds: number[], label?: string) =>
+  call<MergeOutcome>("merge_files", { fileIds, label: label ?? null });
+
+export interface MergeGroup {
+  label: string;
+  fileIds: number[];
+  files: number;
+  bytes: number;
+}
+
+export interface AutoMergePlan {
+  groups: MergeGroup[];
+  totalFiles: number;
+  skippedMatched: number;
+  skippedDisabled: number;
+}
+
+export const planAutoMerge = () => call<AutoMergePlan>("plan_auto_merge");

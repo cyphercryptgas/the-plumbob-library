@@ -2,10 +2,14 @@ import { useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getThumbnails } from "../lib/commands";
 import {
+  checkCurseUpdates,
   listBackups,
   listConflicts,
   listDuplicateGroups,
   listOperations,
+  mergeFiles,
+  planAutoMerge,
+  prepareThumbnails,
 } from "../lib/commands";
 import { formatBytes, formatDuration, plural } from "../lib/format";
 import { useApp } from "../state/AppContext";
@@ -142,6 +146,77 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
     libraryVersion,
     reportError,
   } = useApp();
+  const [quickBusy, setQuickBusy] = useState<string | null>(null);
+  const [quickNote, setQuickNote] = useState<string | null>(null);
+
+  const runAutoMerge = async () => {
+    setQuickBusy("merge");
+    setQuickNote(null);
+    try {
+      const plan = await planAutoMerge();
+      if (plan.groups.length === 0) {
+        setQuickNote(
+          `Nothing to auto-merge: ${plan.skippedMatched.toLocaleString()} CurseForge-matched and ${plan.skippedDisabled.toLocaleString()} disabled packages stay loose by design.`
+        );
+        return;
+      }
+      const summary = plan.groups
+        .map((g) => `${g.label} (${g.files})`)
+        .join(", ");
+      if (
+        !window.confirm(
+          `Auto-merge ${plan.totalFiles.toLocaleString()} packages into ${plan.groups.length} merged files by category — ${summary}.\n\nSkipped on purpose: ${plan.skippedMatched.toLocaleString()} CurseForge-matched (they'd lose updates) and ${plan.skippedDisabled.toLocaleString()} disabled.\n\nOriginals are backed up first, then removed. Proceed?`
+        )
+      )
+        return;
+      let done = 0;
+      let resources = 0;
+      for (const g of plan.groups) {
+        const out = await mergeFiles(g.fileIds, g.label);
+        done += 1;
+        resources += out.stats.resourcesOut;
+        setQuickNote(`Merging… ${done}/${plan.groups.length} (${g.label})`);
+      }
+      setQuickNote(
+        `Auto-merge complete: ${plan.totalFiles.toLocaleString()} packages → ${plan.groups.length} merged files (${resources.toLocaleString()} resources). Run a Scan to see them.`
+      );
+    } catch (e) {
+      reportError(String(e));
+    } finally {
+      setQuickBusy(null);
+    }
+  };
+
+  const runPrepareThumbs = async () => {
+    setQuickBusy("thumbs");
+    setQuickNote(null);
+    try {
+      const out = await prepareThumbnails();
+      setQuickNote(
+        `Thumbnails: ${out.generated.toLocaleString()} new · ${out.cached.toLocaleString()} cached · ${out.noImage.toLocaleString()} without art.`
+      );
+    } catch (e) {
+      reportError(String(e));
+    } finally {
+      setQuickBusy(null);
+    }
+  };
+
+  const runRadar = async () => {
+    setQuickBusy("radar");
+    setQuickNote(null);
+    try {
+      const s = await checkCurseUpdates();
+      setQuickNote(
+        `Radar: ${s.matched.toLocaleString()} known to CurseForge · ${s.updates.toLocaleString()} updates available.`
+      );
+    } catch (e) {
+      reportError(String(e));
+    } finally {
+      setQuickBusy(null);
+    }
+  };
+
 
   const [latestBackup, setLatestBackup] = useState<BackupView | null>(null);
   const [conflictGroups, setConflictGroups] = useState<ConflictGroup[]>([]);
@@ -596,20 +671,26 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
               />
               <ActionTile
                 icon="duplicates"
-                label="Review duplicates"
-                onClick={() => props.onNavigate("duplicates")}
+                label={quickBusy === "merge" ? "Merging…" : "Merge packages"}
+                onClick={() => void runAutoMerge()}
+                disabled={quickBusy !== null}
               />
               <ActionTile
-                icon="backups"
-                label="Open backups"
-                onClick={() => props.onNavigate("backups")}
+                icon="library"
+                label={quickBusy === "thumbs" ? "Preparing…" : "Prepare thumbnails"}
+                onClick={() => void runPrepareThumbs()}
+                disabled={quickBusy !== null}
               />
               <ActionTile
-                icon="activity"
-                label="View activity"
-                onClick={() => props.onNavigate("activity")}
+                icon="calendar"
+                label={quickBusy === "radar" ? "Checking…" : "Update radar"}
+                onClick={() => void runRadar()}
+                disabled={quickBusy !== null}
               />
             </div>
+            {quickNote ? (
+              <p className="mt-3 text-xs text-ink-secondary">{quickNote}</p>
+            ) : null}
           </Card>
         </div>
       </div>

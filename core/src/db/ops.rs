@@ -202,6 +202,7 @@ fn map_operation(r: &rusqlite::Row<'_>) -> rusqlite::Result<OperationView> {
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OperationStepView {
+    pub file_id: Option<i64>,
     pub step_order: i64,
     pub action: String,
     pub source_path: String,
@@ -216,12 +217,20 @@ pub fn operation_steps(
     operation_row_id: i64,
 ) -> Result<Vec<OperationStepView>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT step_order, action, source_path, destination_path, expected_hash,
-                status, error_message
-         FROM operation_steps WHERE operation_id = ?1 ORDER BY step_order",
+        "SELECT s.step_order, s.action, s.source_path, s.destination_path,
+                s.expected_hash, s.status, s.error_message,
+                COALESCE(
+                    (SELECT id FROM files WHERE s.expected_hash IS NOT NULL
+                       AND sha256 = s.expected_hash LIMIT 1),
+                    (SELECT id FROM files WHERE relative_path = s.source_path
+                       LIMIT 1)
+                ) AS file_id
+         FROM operation_steps s
+         WHERE s.operation_id = ?1 ORDER BY s.step_order",
     )?;
     let rows = stmt.query_map([operation_row_id], |r| {
         Ok(OperationStepView {
+            file_id: r.get(7)?,
             step_order: r.get(0)?,
             action: r.get(1)?,
             source_path: r.get(2)?,
@@ -521,12 +530,21 @@ pub struct BackupEntryView {
     pub backup_path: String,
     pub sha256: String,
     pub size_bytes: i64,
+    /// The library row this entry maps to today (hash first, path
+    /// fallback) — history gets to wear the file's thumbnail.
+    pub file_id: Option<i64>,
 }
 
 pub fn backup_entries(conn: &Connection, backup_id: i64) -> Result<Vec<BackupEntryView>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT source_path, backup_path, sha256, size_bytes
-         FROM backup_entries WHERE backup_id = ?1 ORDER BY source_path COLLATE NOCASE",
+        "SELECT e.source_path, e.backup_path, e.sha256, e.size_bytes,
+                COALESCE(
+                    (SELECT id FROM files WHERE sha256 = e.sha256 LIMIT 1),
+                    (SELECT id FROM files WHERE relative_path = e.source_path
+                       LIMIT 1)
+                ) AS file_id
+         FROM backup_entries e
+         WHERE e.backup_id = ?1 ORDER BY e.source_path COLLATE NOCASE",
     )?;
     let rows = stmt.query_map([backup_id], |r| {
         Ok(BackupEntryView {
@@ -534,6 +552,7 @@ pub fn backup_entries(conn: &Connection, backup_id: i64) -> Result<Vec<BackupEnt
             backup_path: r.get(1)?,
             sha256: r.get(2)?,
             size_bytes: r.get(3)?,
+            file_id: r.get(4)?,
         })
     })?;
     let mut out = Vec::new();

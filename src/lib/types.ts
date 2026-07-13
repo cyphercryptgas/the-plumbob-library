@@ -115,6 +115,7 @@ export interface OperationView {
 }
 
 export interface OperationStepView {
+  fileId: number | null;
   stepOrder: number;
   action: string;
   sourcePath: string;
@@ -136,6 +137,7 @@ export interface BackupView {
 }
 
 export interface BackupEntryView {
+  fileId: number | null;
   sourcePath: string;
   backupPath: string;
   sha256: string;
