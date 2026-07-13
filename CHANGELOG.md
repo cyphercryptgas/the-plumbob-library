@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.13.0 — Subcategories & The Great Marker Amnesty
+
+* **The stale-marker confession.** Before the DDS decoder existed, every
+  package *visited* in the grid was marked "no image" — and every pass
+  since has honored those verdicts forever. That's why Build/Buy stayed
+  dark and CAS looked patchy run to run. All legacy markers are now
+  invalidated on sight; the next Prepare re-attempts everything under
+  the current decoders.
+* **CAS subcategory chips.** Selecting CAS reveals a sub-row — Hats,
+  Hair, Face & Sculpts, Tops, Bottoms, Full Body, Shoes, Accessories,
+  Skin & Details — read from each part's own BodyType field inside its
+  CASP resource (sequential-field parse behind a version gate, fixture
+  bytes constructed in tests; anything unreadable stays honestly
+  unlabeled and retries next scan). Tiles and rows wear their
+  subcategory pill. Run one Scan to classify the library.
+* **Duplicates and Conflicts wear thumbnails** on every member row,
+  matching the Dashboard.
+* Still owed to the workshop: the **Diagnose blanks** table — if
+  Build/Buy remains dark after the amnesty, its Unknown hex rows are the
+  next decoders' shopping list.
+
+
 ## 0.12.0 — Instruments, Not Guesses
 
 * **Diagnose blanks.** The gallery gains a census: one click lists the

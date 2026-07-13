@@ -345,11 +345,12 @@ pub struct FileRow {
     pub parse_status: Option<String>,
     pub enabled: bool,
     pub category: Option<String>,
+    pub cas_subcategory: Option<String>,
 }
 
 const FILE_ROW_COLUMNS: &str = "id, relative_path, absolute_path, current_filename, file_type,
     size_bytes, sha256, status, missing, zero_byte, deep_script, depth, modified_at_fs,
-    mod_id, parse_status, enabled, category";
+    mod_id, parse_status, enabled, category, cas_subcategory";
 
 fn map_file_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<FileRow> {
     Ok(FileRow {
@@ -370,6 +371,7 @@ fn map_file_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<FileRow> {
         parse_status: r.get(14)?,
         enabled: r.get::<_, i64>(15)? != 0,
         category: r.get(16)?,
+        cas_subcategory: r.get(17)?,
     })
 }
 
@@ -387,6 +389,16 @@ fn filter_clause(filter: Option<&str>) -> Result<&'static str, DbError> {
         "quarantined" => "status = 'quarantined'",
         "disabled" => "enabled = 0 AND status = 'current'",
         "cat_cas" => "category = 'cas'",
+        "sub_hats" => "cas_subcategory = 'hats'",
+        "sub_hair" => "cas_subcategory = 'hair'",
+        "sub_face" => "cas_subcategory = 'face'",
+        "sub_fullbody" => "cas_subcategory = 'fullbody'",
+        "sub_tops" => "cas_subcategory = 'tops'",
+        "sub_bottoms" => "cas_subcategory = 'bottoms'",
+        "sub_shoes" => "cas_subcategory = 'shoes'",
+        "sub_accessories" => "cas_subcategory = 'accessories'",
+        "sub_skin" => "cas_subcategory = 'skin'",
+        "sub_other" => "cas_subcategory = 'other'",
         "cat_buildbuy" => "category = 'buildbuy'",
         "cat_animations" => "category = 'animations'",
         "cat_gameplay" => "category = 'gameplay'",
@@ -1041,4 +1053,25 @@ pub fn package_paths(conn: &Connection) -> Result<Vec<(i64, String)>, DbError> {
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
+}
+
+/// CAS packages whose subcategory hasn't been read yet.
+pub fn cas_needing_subcategory(conn: &Connection) -> Result<Vec<(i64, String)>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, absolute_path FROM files
+         WHERE category = 'cas' AND cas_subcategory IS NULL
+           AND missing = 0 AND status = 'current'",
+    )?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+pub fn set_cas_subcategory(conn: &Connection, id: i64, sub: &str) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE files SET cas_subcategory = ?2 WHERE id = ?1",
+        params![id, sub],
+    )?;
+    Ok(())
 }

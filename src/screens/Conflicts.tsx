@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { getThumbnails } from "../lib/commands";
+import { useEffect as useThumbEffect, useState as useThumbState } from "react";
 import * as api from "../lib/commands";
 import { plural } from "../lib/format";
 import type { ConflictGroup } from "../lib/types";
@@ -106,6 +109,26 @@ export function Conflicts() {
 }
 
 function ConflictCard({ group }: { group: ConflictGroup }) {
+  const [thumbs, setThumbs] = useThumbState<Record<number, string>>({});
+  useThumbEffect(() => {
+    const ids = group.members.map((m) => m.fileId);
+    if (ids.length === 0) return;
+    let alive = true;
+    getThumbnails(ids)
+      .then((got) => {
+        if (!alive) return;
+        setThumbs((prev) => {
+          const next = { ...prev };
+          for (const t of got) if (t.path) next[t.fileId] = convertFileSrc(t.path);
+          return next;
+        });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [group]);
+
   const { reportError } = useApp();
   const extraKeys = group.sharedKeyCount - group.sampleKeys.length;
 
@@ -135,6 +158,13 @@ function ConflictCard({ group }: { group: ConflictGroup }) {
               key={m.fileId}
               className="flex flex-wrap items-center justify-between gap-2 rounded-control border border-border-subtle px-3 py-2"
             >
+              {thumbs[m.fileId] ? (
+                <img
+                  src={thumbs[m.fileId]}
+                  alt=""
+                  className="h-9 w-9 shrink-0 rounded-lg border border-gold/40 object-cover"
+                />
+              ) : null}
               <span
                 className="min-w-0 flex-1 truncate text-sm text-ink"
                 title={m.relativePath}

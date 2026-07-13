@@ -17,6 +17,7 @@
 //!   [`ops::JournalSink`] and never silently continues past a safety-critical
 //!   failure.
 
+pub mod casp;
 pub mod curse;
 pub mod db;
 pub mod dbpf;

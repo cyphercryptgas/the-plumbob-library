@@ -49,6 +49,32 @@ const DATE_FILTERS: { key: LibraryFilter; label: string }[] = [
   { key: "date_old", label: "Older" },
 ];
 
+const SUB_BADGE: Record<string, string> = {
+  hats: "Hats",
+  hair: "Hair",
+  face: "Face & Sculpts",
+  fullbody: "Full Body",
+  tops: "Tops",
+  bottoms: "Bottoms",
+  shoes: "Shoes",
+  accessories: "Accessories",
+  skin: "Skin & Details",
+  other: "CAS · Other",
+};
+
+const SUB_FILTERS: { key: LibraryFilter; label: string }[] = [
+  { key: "sub_hats", label: "Hats" },
+  { key: "sub_hair", label: "Hair" },
+  { key: "sub_face", label: "Face & Sculpts" },
+  { key: "sub_tops", label: "Tops" },
+  { key: "sub_bottoms", label: "Bottoms" },
+  { key: "sub_fullbody", label: "Full Body" },
+  { key: "sub_shoes", label: "Shoes" },
+  { key: "sub_accessories", label: "Accessories" },
+  { key: "sub_skin", label: "Skin & Details" },
+  { key: "sub_other", label: "Other" },
+];
+
 const CATEGORY_FILTERS: { key: LibraryFilter; label: string }[] = [
   { key: "cat_cas", label: "CAS" },
   { key: "cat_buildbuy", label: "Build/Buy" },
@@ -322,6 +348,33 @@ export function Library(props: { initialSearch?: string }) {
             </button>
           ))}
         </div>
+        {filter === "cat_cas" || filter.startsWith("sub_") ? (
+          <div
+            className="mt-2 flex flex-wrap items-center gap-1.5 pl-4"
+            role="group"
+            aria-label="Filter CAS by subcategory"
+          >
+            <span className="mr-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#94875e]">
+              CAS
+            </span>
+            {SUB_FILTERS.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() =>
+                  setFilter(filter === f.key ? "cat_cas" : f.key)
+                }
+                className={`rounded-control border px-2.5 py-1 text-xs transition ${
+                  filter === f.key
+                    ? "border-transparent bg-accent font-medium text-ink"
+                    : "border-border-subtle text-ink-secondary hover:border-gold/60"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div
           className="mt-2 flex flex-wrap items-center gap-1.5"
           role="group"
@@ -439,7 +492,9 @@ export function Library(props: { initialSearch?: string }) {
                       {f.currentFilename}
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      {f.category && CATEGORY_BADGE[f.category] ? (
+                      {f.casSubcategory && SUB_BADGE[f.casSubcategory] ? (
+                        <Pill tone="sage">{SUB_BADGE[f.casSubcategory]}</Pill>
+                      ) : f.category && CATEGORY_BADGE[f.category] ? (
                         <Pill tone="sage">{CATEGORY_BADGE[f.category]}</Pill>
                       ) : null}
                       {!f.enabled && f.status === "current" ? (
@@ -537,7 +592,9 @@ export function Library(props: { initialSearch?: string }) {
                     </td>
                     <td className="px-3 py-2">
                       <span className="flex flex-wrap gap-1">
-                        {f.category && CATEGORY_BADGE[f.category] ? (
+                        {f.casSubcategory && SUB_BADGE[f.casSubcategory] ? (
+                          <Pill tone="sage">{SUB_BADGE[f.casSubcategory]}</Pill>
+                        ) : f.category && CATEGORY_BADGE[f.category] ? (
                           <Pill tone="sage">{CATEGORY_BADGE[f.category]}</Pill>
                         ) : null}
                         {!f.enabled && f.status === "current" ? (

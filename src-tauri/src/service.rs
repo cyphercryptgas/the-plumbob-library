@@ -295,6 +295,10 @@ pub fn run_scan_pipeline(
         db::dupes::replace_exact_groups(guard.conn_mut(), &groups).map_err(err_str)?
     };
 
+    // Subcategory pass: reads CAS payloads, so it runs after the lock-held
+    // classification and never inside it.
+    let _ = classify_cas_subtypes(dbm);
+
     let outcome = ScanOutcome {
         scan_id: summary.scan_id,
         new_files: summary.new_files,
@@ -1473,7 +1477,9 @@ pub fn thumbnails(
     for row in rows {
         let png = cache.join(format!("{}.png", row.id));
         let jpg = cache.join(format!("{}.jpg", row.id));
-        let none = cache.join(format!("{}.none", row.id));
+        let none = cache.join(format!("{}.none2", row.id));
+        // Markers written before the DDS decoder existed are stale verdicts.
+        let _ = std::fs::remove_file(cache.join(format!("{}.none", row.id)));
         let cached = if png.exists() {
             Some(png)
         } else if jpg.exists() {
@@ -1528,7 +1534,8 @@ pub fn prepare_thumbnails(
     for (i, (id, absolute)) in work.iter().enumerate() {
         let png = cache.join(format!("{id}.png"));
         let jpg = cache.join(format!("{id}.jpg"));
-        let none = cache.join(format!("{id}.none"));
+        let none = cache.join(format!("{id}.none2"));
+        let _ = std::fs::remove_file(cache.join(format!("{id}.none")));
         if !(png.exists() || jpg.exists() || none.exists()) {
             match plumbob_core::dbpf::extract_thumbnail(Path::new(absolute)) {
                 Ok(Some((bytes, ext))) => {
@@ -1596,4 +1603,31 @@ pub fn thumbnail_census(
             files,
         })
         .collect())
+}
+
+/// Read each unclassified CAS package's BodyType and record its
+/// subcategory. IO happens unlocked; rows write back in small batches.
+/// Unreadable payloads stay pending and simply retry on a later scan.
+pub fn classify_cas_subtypes(dbm: &Mutex<Database>) -> UiResult<usize> {
+    let pending = {
+        let guard = lock_db(dbm)?;
+        db::files::cas_needing_subcategory(guard.conn()).map_err(err_str)?
+    };
+    let mut done = 0usize;
+    let mut batch: Vec<(i64, &'static str)> = Vec::with_capacity(25);
+    for (i, (id, absolute)) in pending.iter().enumerate() {
+        if let Ok(Some(bt)) =
+            plumbob_core::dbpf::read_casp_body_type(Path::new(absolute))
+        {
+            batch.push((*id, plumbob_core::casp::subcategory_for(bt)));
+        }
+        if batch.len() >= 25 || i + 1 == pending.len() {
+            let guard = lock_db(dbm)?;
+            for (id, sub) in batch.drain(..) {
+                db::files::set_cas_subcategory(guard.conn(), id, sub).map_err(err_str)?;
+                done += 1;
+            }
+        }
+    }
+    Ok(done)
 }

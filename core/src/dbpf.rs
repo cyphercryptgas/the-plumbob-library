@@ -565,34 +565,8 @@ pub fn extract_thumbnail(path: &Path) -> Result<Option<(Vec<u8>, &'static str)>,
         // Bigger memory size ≈ bigger picture.
         candidates.sort_by_key(|e| std::cmp::Reverse(e.mem_size));
         for entry in candidates {
-            if u64::from(entry.size) > MAX_THUMB_BYTES
-                || u64::from(entry.mem_size) > MAX_THUMB_BYTES
-            {
+            let Some(payload) = read_entry_payload(&mut file, entry) else {
                 continue;
-            }
-            if file.seek(SeekFrom::Start(u64::from(entry.position))).is_err() {
-                continue;
-            }
-            let mut raw = vec![0u8; entry.size as usize];
-            if file.read_exact(&mut raw).is_err() {
-                continue;
-            }
-            let payload: Vec<u8> = match entry.compression {
-                COMP_NONE => raw,
-                COMP_ZLIB => {
-                    use std::io::Read as _;
-                    let mut out = Vec::with_capacity(entry.mem_size as usize);
-                    let mut dec = flate2::read::ZlibDecoder::new(raw.as_slice());
-                    match dec
-                        .by_ref()
-                        .take(MAX_THUMB_BYTES)
-                        .read_to_end(&mut out)
-                    {
-                        Ok(_) => out,
-                        Err(_) => continue,
-                    }
-                }
-                _ => continue,
             };
             if payload.len() >= 4 && payload[..4] == PNG_MAGIC {
                 return Ok(Some((payload, "png")));
@@ -604,6 +578,45 @@ pub fn extract_thumbnail(path: &Path) -> Result<Option<(Vec<u8>, &'static str)>,
                 if let Some(png) = dds_to_png(&payload) {
                     return Ok(Some((png, "png")));
                 }
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Read one resource's payload: seek, read, and decompress by declared
+/// codec. `None` on any IO trouble or an unsupported codec — callers skip.
+pub fn read_entry_payload(file: &mut File, entry: &EntryMeta) -> Option<Vec<u8>> {
+    if u64::from(entry.size) > MAX_THUMB_BYTES || u64::from(entry.mem_size) > MAX_THUMB_BYTES {
+        return None;
+    }
+    file.seek(SeekFrom::Start(u64::from(entry.position))).ok()?;
+    let mut raw = vec![0u8; entry.size as usize];
+    file.read_exact(&mut raw).ok()?;
+    match entry.compression {
+        COMP_NONE => Some(raw),
+        COMP_ZLIB => {
+            use std::io::Read as _;
+            let mut out = Vec::with_capacity(entry.mem_size as usize);
+            let mut dec = flate2::read::ZlibDecoder::new(raw.as_slice());
+            dec.by_ref().take(MAX_THUMB_BYTES).read_to_end(&mut out).ok()?;
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+/// The BodyType of the first CAS part in a package, if any.
+pub fn read_casp_body_type(path: &Path) -> Result<Option<u32>, DbpfError> {
+    let index = read_package_index(path)?;
+    let mut file = File::open(path)?;
+    for (key, entry) in index.keys.iter().zip(index.entries.iter()) {
+        if key.type_id != crate::casp::CASP_TYPE {
+            continue;
+        }
+        if let Some(payload) = read_entry_payload(&mut file, entry) {
+            if let Some(bt) = crate::casp::casp_body_type(&payload) {
+                return Ok(Some(bt));
             }
         }
     }

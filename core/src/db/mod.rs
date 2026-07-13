@@ -81,6 +81,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0009_name_radar",
         include_str!("../../migrations/0009_name_radar.sql"),
     ),
+    (
+        "0010_cas_subcategory",
+        include_str!("../../migrations/0010_cas_subcategory.sql"),
+    ),
 ];
 
 pub struct Database {

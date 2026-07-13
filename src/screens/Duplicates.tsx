@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { getThumbnails } from "../lib/commands";
+import { useEffect as useThumbEffect, useState as useThumbState } from "react";
 import * as api from "../lib/commands";
 import { formatBytes, formatDateTime, plural, shortHash } from "../lib/format";
 import type { DuplicateGroupView, SuspectedDuplicateGroup } from "../lib/types";
@@ -18,6 +21,25 @@ export function Duplicates() {
   const [loading, setLoading] = useState(true);
   /** Per-group chosen "keep" file (defaults to the recommendation). */
   const [keep, setKeep] = useState<Record<number, number>>({});
+  const [thumbs, setThumbs] = useThumbState<Record<number, string>>({});
+  useThumbEffect(() => {
+    const ids = groups.flatMap((g) => g.members.map((m) => m.fileId));
+    if (ids.length === 0) return;
+    let alive = true;
+    getThumbnails(ids.slice(0, 120))
+      .then((got) => {
+        if (!alive) return;
+        setThumbs((prev) => {
+          const next = { ...prev };
+          for (const t of got) if (t.path) next[t.fileId] = convertFileSrc(t.path);
+          return next;
+        });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [groups]);
   const [pending, setPending] = useState<PendingQuarantine | null>(null);
 
   useEffect(() => {
@@ -141,6 +163,13 @@ export function Duplicates() {
                       }
                       aria-label={`Keep ${m.relativePath}`}
                     />
+                    {thumbs[m.fileId] ? (
+                      <img
+                        src={thumbs[m.fileId]}
+                        alt=""
+                        className="h-10 w-10 shrink-0 rounded-lg border border-gold/40 object-cover"
+                      />
+                    ) : null}
                     <div className="min-w-0 flex-1">
                       <div className="break-all text-sm font-medium text-ink">
                         {m.relativePath}

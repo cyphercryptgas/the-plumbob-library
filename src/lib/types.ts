@@ -68,6 +68,7 @@ export interface FileRow {
   parseStatus: string | null;
   enabled: boolean;
   category: string | null;
+  casSubcategory: string | null;
 }
 
 export interface DuplicateMemberView {
@@ -205,7 +206,17 @@ export type LibraryFilter =
   | "date_7"
   | "date_30"
   | "date_90"
-  | "date_old";
+  | "date_old"
+  | "sub_hats"
+  | "sub_hair"
+  | "sub_face"
+  | "sub_fullbody"
+  | "sub_tops"
+  | "sub_bottoms"
+  | "sub_shoes"
+  | "sub_accessories"
+  | "sub_skin"
+  | "sub_other";
 
 export interface ConflictMember {
   fileId: number;
