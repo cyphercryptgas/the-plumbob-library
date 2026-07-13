@@ -93,6 +93,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0012_third_wipe",
         include_str!("../../migrations/0012_third_wipe.sql"),
     ),
+    (
+        "0013_reference_wipe",
+        include_str!("../../migrations/0013_reference_wipe.sql"),
+    ),
 ];
 
 pub struct Database {

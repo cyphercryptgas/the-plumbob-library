@@ -1674,14 +1674,38 @@ pub fn thumbnail_census(
         .take(6)
         .map(|(v, n)| format!("0x{v:02X}×{n}"))
         .collect();
-    let refs: Vec<Vec<&[u8]>> = payloads
-        .iter()
-        .map(|sibs| sibs.iter().map(|p| p.as_slice()).collect())
-        .collect();
     let verdict = if cas.is_empty() {
         "all CAS parts classified".to_string()
     } else {
-        plumbob_core::casp::calibrate_by_version(&refs).1
+        let mut total: std::collections::HashMap<u32, usize> = Default::default();
+        let mut parsed: std::collections::HashMap<u32, usize> = Default::default();
+        for sibs in &payloads {
+            let p = &sibs[0];
+            if p.len() < 4 {
+                continue;
+            }
+            let v = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
+            *total.entry(v).or_insert(0) += 1;
+            let refs: Vec<&[u8]> = sibs.iter().map(|q| q.as_slice()).collect();
+            if plumbob_core::casp::body_type_checked(&refs).is_some() {
+                *parsed.entry(v).or_insert(0) += 1;
+            }
+        }
+        let mut order: Vec<u32> = total.keys().copied().collect();
+        order.sort_by_key(|v| std::cmp::Reverse(total[v]));
+        let parts: Vec<String> = order
+            .into_iter()
+            .map(|v| {
+                let t = total[&v];
+                let p = parsed.get(&v).copied().unwrap_or(0);
+                format!("0x{v:02X}→ref {:.0}%", p as f32 * 100.0 / t as f32)
+            })
+            .collect();
+        if parts.is_empty() {
+            "no readable CASP payloads".to_string()
+        } else {
+            parts.join(" · ")
+        }
     };
     Ok(CensusReport {
         rows,
@@ -1709,21 +1733,12 @@ pub fn classify_cas_subtypes(dbm: &Mutex<Database>) -> UiResult<usize> {
             }
         }
     }
-    let sample: Vec<Vec<&[u8]>> = payloads
-        .iter()
-        .take(400)
-        .map(|(_, sibs)| sibs.iter().map(|p| p.as_slice()).collect())
-        .collect();
-    let (schemes, _) = plumbob_core::casp::calibrate_by_version(&sample);
-    if schemes.is_empty() {
-        return Ok(0);
-    }
     let mut done = 0usize;
     for chunk in payloads.chunks(50) {
         let guard = lock_db(dbm)?;
         for (id, sibs) in chunk {
-            let Some(payload) = sibs.first() else { continue };
-            if let Some(bt) = plumbob_core::casp::body_type_versioned(payload, &schemes) {
+            let refs: Vec<&[u8]> = sibs.iter().map(|p| p.as_slice()).collect();
+            if let Some(bt) = plumbob_core::casp::body_type_checked(&refs) {
                 let sub = plumbob_core::casp::subcategory_for(bt);
                 db::files::set_cas_subcategory(guard.conn(), *id, sub).map_err(err_str)?;
                 done += 1;

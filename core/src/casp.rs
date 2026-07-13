@@ -288,6 +288,66 @@ pub fn body_type_versioned(
     body_type_with(payload, *schemes.get(&v)?)
 }
 
+/// The reference parser, field for field per s4pi's CASPartResource —
+/// version, TGI offset, presetCount (always 0), a 7-bit-byte-length
+/// UTF-16BE name, then the fixed run to the variable flag list, then the
+/// keyed run to bodyType. Version branches: parmFlags2 ≥0x27,
+/// excludePartFlags2 ≥0x29, u64 modifier region ≥0x24, 6-byte flags
+/// ≥0x25 (4-byte pairs before), createDescriptionKey ≥0x2B. BodyType has
+/// no fixed offset — the flag count moves it — which is why every
+/// offset election was structurally doomed.
+pub fn body_type_reference(payload: &[u8]) -> Option<u32> {
+    let mut r = Reader { d: payload, pos: 0 };
+    let version = r.u32()?;
+    if !(0x1B..=0x7F).contains(&version) {
+        return None;
+    }
+    r.u32()?; // TGI offset
+    if r.u32()? != 0 {
+        return None; // presetCount: the reference throws on non-zero
+    }
+    r.string7()?; // byte-length-prefixed UTF-16BE name
+    r.skip(4 + 2 + 4 + 4 + 1)?; // sortPriority..parmFlags
+    if version >= 0x27 {
+        r.skip(1)?; // parmFlags2
+    }
+    r.skip(8)?; // excludePartFlags
+    if version >= 0x29 {
+        r.skip(8)?; // excludePartFlags2
+    }
+    r.skip(if version >= 0x24 { 8 } else { 4 })?; // modifier region
+    let flags = r.u32()?;
+    if flags > 4096 {
+        return None;
+    }
+    let per = if version >= 0x25 { 6 } else { 4 };
+    r.skip(per * flags as usize)?;
+    r.skip(4 + 4 + 4)?; // price, titleKey, descriptionKey
+    if version >= 0x2B {
+        r.skip(4)?; // createDescriptionKey
+    }
+    r.skip(1)?; // uniqueTextureSpace
+    let bt = r.u32()?;
+    if (1..=BODY_TYPE_MAX).contains(&bt) {
+        Some(bt)
+    } else {
+        None
+    }
+}
+
+/// Reference-parse every sibling and demand they agree — swatches of one
+/// part share a BodyType, so disagreement means a bad parse, not a chip.
+pub fn body_type_checked(siblings: &[&[u8]]) -> Option<u32> {
+    let mut it = siblings.iter().map(|p| body_type_reference(p));
+    let first = it.next()??;
+    for r in it {
+        if r != Some(first) {
+            return None;
+        }
+    }
+    Some(first)
+}
+
 /// Map a BodyType to the subcategory chips. Buckets are deliberately
 /// coarse and evidence-adjustable; unknown values land in "other".
 pub fn subcategory_for(body_type: u32) -> &'static str {
@@ -420,6 +480,99 @@ mod tests {
         v.extend_from_slice(&body_type.to_le_bytes()); // off 10..14
         v.extend_from_slice(&(0x1000 + file_salt).to_le_bytes());
         v
+    }
+
+    fn casp_reference(
+        version: u32,
+        name_chars: usize,
+        flag_count: u32,
+        body_type: u32,
+        salt: u32,
+    ) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&version.to_le_bytes());
+        v.extend_from_slice(&0x0400u32.to_le_bytes()); // TGI offset
+        v.extend_from_slice(&0u32.to_le_bytes()); // presetCount
+        let byte_len = name_chars * 2; // UTF-16BE
+        assert!(byte_len < 0x80);
+        v.push(byte_len as u8);
+        for i in 0..name_chars {
+            v.extend_from_slice(&[0x00, b'a' + (i as u8 % 26)]);
+        }
+        v.extend_from_slice(&1.5f32.to_le_bytes()); // sortPriority
+        v.extend_from_slice(&(salt as u16).to_le_bytes()); // secondarySortIndex
+        v.extend_from_slice(&(0xAAAA_0000 + salt).to_le_bytes()); // propertyID
+        v.extend_from_slice(&0xDEAD_BEEFu32.to_le_bytes()); // auralMaterialHash
+        v.push(0x03); // parmFlags
+        if version >= 0x27 {
+            v.push(0x01); // parmFlags2
+        }
+        v.extend_from_slice(&0x11u64.to_le_bytes()); // excludePartFlags
+        if version >= 0x29 {
+            v.extend_from_slice(&0x22u64.to_le_bytes());
+        }
+        if version >= 0x24 {
+            v.extend_from_slice(&0x33u64.to_le_bytes());
+        } else {
+            v.extend_from_slice(&0x33u32.to_le_bytes());
+        }
+        v.extend_from_slice(&flag_count.to_le_bytes());
+        for f in 0..flag_count {
+            if version >= 0x25 {
+                v.extend_from_slice(&(f as u16).to_le_bytes());
+                v.extend_from_slice(&(0x40 + f).to_le_bytes());
+            } else {
+                v.extend_from_slice(&(f as u16).to_le_bytes());
+                v.extend_from_slice(&(f as u16).to_le_bytes());
+            }
+        }
+        v.extend_from_slice(&100u32.to_le_bytes()); // deprecatedPrice
+        v.extend_from_slice(&0x51u32.to_le_bytes()); // partTitleKey
+        v.extend_from_slice(&0x52u32.to_le_bytes()); // partDescriptionKey
+        if version >= 0x2B {
+            v.extend_from_slice(&0x53u32.to_le_bytes());
+        }
+        v.push(0x00); // uniqueTextureSpace
+        v.extend_from_slice(&body_type.to_le_bytes());
+        v.extend_from_slice(&2u32.to_le_bytes()); // bodySubType
+        v.extend_from_slice(&0x3333u32.to_le_bytes()); // ageGender
+        v
+    }
+
+    #[test]
+    fn reference_parse_reads_body_type_across_versions_and_flag_counts() {
+        // 0x2A lacks createDescriptionKey; flag counts move the field.
+        for (version, flags) in [(0x2Au32, 0u32), (0x2A, 7), (0x2E, 3), (0x33, 11), (0x1B, 5)] {
+            for bt in [2u32, 6, 8, 26, 31] {
+                let p = casp_reference(version, 9, flags, bt, 4);
+                assert_eq!(
+                    body_type_reference(&p),
+                    Some(bt),
+                    "v=0x{version:02X} flags={flags} bt={bt}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reference_parse_refuses_bad_prefixes_and_ranges() {
+        let mut nonzero_preset = casp_reference(0x2E, 4, 2, 6, 0);
+        nonzero_preset[8] = 1;
+        assert_eq!(body_type_reference(&nonzero_preset), None);
+        let out_of_range = casp_reference(0x2E, 4, 2, 999, 0);
+        assert_eq!(body_type_reference(&out_of_range), None);
+        let mut short = casp_reference(0x2E, 4, 2, 6, 0);
+        short.truncate(30);
+        assert_eq!(body_type_reference(&short), None);
+    }
+
+    #[test]
+    fn sibling_check_demands_agreement() {
+        let a = casp_reference(0x2E, 6, 4, 6, 1);
+        let b = casp_reference(0x2E, 6, 9, 6, 2); // different flags, same part
+        let c = casp_reference(0x2E, 6, 2, 7, 3); // a different bodyType
+        assert_eq!(body_type_checked(&[&a, &b]), Some(6));
+        assert_eq!(body_type_checked(&[&a, &b, &c]), None);
     }
 
     #[test]

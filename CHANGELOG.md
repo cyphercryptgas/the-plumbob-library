@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.18.0 — The Reference
+
+* **BodyType has no fixed offset — a variable flag list precedes it.**
+  Fetched from the s4pi reference at last: the field chain runs
+  sortPriority through the exclude flags, then a **flag list (u32 count
+  + 6 bytes per flag)** whose length moves every later field, then the
+  string keys, then bodyType. No offset election could ever have worked;
+  the 68%-at-offset-40 from the old probe was files whose *flag count*
+  happened to look like a BodyType. (The bitter footnote: the original
+  name parser was correct all along — BigEndianUnicodeString is a
+  7-bit *byte*-length prefix, exactly what shipped in v0.13.)
+* Classification now uses the **reference parser**: a sequential read of
+  the documented chain with its version branches (your 0x2A cohort
+  lacks createDescriptionKey; older files use 4-byte flags), gated by
+  range and by sibling agreement — swatches must concur or the file
+  stays unlabeled. Elections are retired to the regression-test museum.
+  The probe line now reports reference-parse coverage per version.
+* Fourth and final wipe. Scan reclassifies.
+
+
 ## 0.17.0 — The Impostor & The Third Wipe
 
 * **Teeth in every bucket, diagnosed.** The election crowned an impostor:
