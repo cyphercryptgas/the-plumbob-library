@@ -228,12 +228,13 @@ pub fn list_conflict_groups(conn: &Connection) -> Result<Vec<ConflictGroup>, DbE
                 f.id, f.relative_path, f.absolute_path, f.sha256, f.mod_id
          FROM package_resources pr
          JOIN files f ON f.id = pr.file_id
-         WHERE f.status = 'current' AND f.missing = 0
+         WHERE f.status = 'current' AND f.missing = 0 AND f.enabled = 1
            AND (pr.type_id, pr.group_id, pr.instance) IN (
                 SELECT p2.type_id, p2.group_id, p2.instance
                 FROM package_resources p2
                 JOIN files f2 ON f2.id = p2.file_id
                 WHERE f2.status = 'current' AND f2.missing = 0
+                  AND f2.enabled = 1
                 GROUP BY p2.type_id, p2.group_id, p2.instance
                 HAVING COUNT(DISTINCT p2.file_id) > 1)
          ORDER BY pr.type_id, pr.group_id, pr.instance",
@@ -966,7 +967,7 @@ pub fn overlapping_files(
            ON r1.type_id = r2.type_id AND r1.group_id = r2.group_id
           AND r1.instance = r2.instance AND r2.file_id <> r1.file_id
          JOIN files f2 ON f2.id = r2.file_id
-          AND f2.missing = 0 AND f2.status = 'current'
+          AND f2.missing = 0 AND f2.status = 'current' AND f2.enabled = 1
          WHERE r1.file_id = ?1
          GROUP BY r2.file_id
          ORDER BY shared DESC

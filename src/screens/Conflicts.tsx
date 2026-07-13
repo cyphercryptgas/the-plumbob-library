@@ -14,7 +14,7 @@ import { Button, Card, EmptyState, Pill, SectionTitle } from "../components/ui";
  * package indexes only — honest about what that can and cannot see.
  */
 export function Conflicts() {
-  const { libraryVersion, reportError } = useApp();
+  const { libraryVersion, reportError, refreshAll } = useApp();
   const [groups, setGroups] = useState<ConflictGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [showFine, setShowFine] = useState(false);
@@ -82,7 +82,7 @@ export function Conflicts() {
             </Card>
           )}
           {needsLook.map((g, i) => (
-            <ConflictCard key={`look-${i}`} group={g} />
+            <ConflictCard key={`look-${i}`} group={g} onResolved={() => void refreshAll()} />
           ))}
 
           {probablyFine.length > 0 ? (
@@ -96,7 +96,7 @@ export function Conflicts() {
               {showFine
                 ? probablyFine.map((g, i) => (
                     <div key={`fine-${i}`} className="mt-3">
-                      <ConflictCard group={g} />
+                      <ConflictCard group={g} onResolved={() => void refreshAll()} />
                     </div>
                   ))
                 : null}
@@ -108,7 +108,7 @@ export function Conflicts() {
   );
 }
 
-function ConflictCard({ group }: { group: ConflictGroup }) {
+function ConflictCard({ group, onResolved }: { group: ConflictGroup; onResolved: () => void }) {
   const [thumbs, setThumbs] = useThumbState<Record<number, string>>({});
   useThumbEffect(() => {
     const ids = group.members.map((m) => m.fileId);
@@ -130,6 +130,7 @@ function ConflictCard({ group }: { group: ConflictGroup }) {
   }, [group]);
 
   const { reportError } = useApp();
+  const [settingAside, setSettingAside] = useState<number | null>(null);
   const extraKeys = group.sharedKeyCount - group.sampleKeys.length;
 
   return (
@@ -178,6 +179,29 @@ function ConflictCard({ group }: { group: ConflictGroup }) {
               ) : (
                 <Pill tone="neutral">overridden</Pill>
               )}
+              {!winner ? (
+                <Button
+                  variant="soft"
+                  disabled={settingAside === m.fileId}
+                  title="Quarantine this shadowed copy — the winner keeps loading; fully reversible from Quarantine."
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        `Set aside ${m.relativePath}?\n\nThe winning copy keeps loading; this one moves to Quarantine (reversible).`
+                      )
+                    )
+                      return;
+                    setSettingAside(m.fileId);
+                    api
+                      .executeQuarantine([m.fileId], "Shadowed duplicate — conflict cleanup")
+                      .then(() => onResolved())
+                      .catch(reportError)
+                      .finally(() => setSettingAside(null));
+                  }}
+                >
+                  {settingAside === m.fileId ? "Setting aside…" : "Set aside"}
+                </Button>
+              ) : null}
               <Button
                 variant="quiet"
                 onClick={() =>

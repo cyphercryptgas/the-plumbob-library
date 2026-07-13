@@ -2395,6 +2395,9 @@ pub struct AutoMergePlan {
     /// friends) — they work in-game and stay loose.
     pub skipped_unreadable: usize,
     pub unreadable_names: Vec<String>,
+    /// Excluded by design: only CAS files merge; Build/Buy, gameplay,
+    /// poses, and everything else stays loose.
+    pub skipped_non_cas: usize,
 }
 
 /// Plan the efficient merge: enabled, unmatched packages, bucketed by
@@ -2421,8 +2424,13 @@ pub fn plan_auto_merge(dbm: &Mutex<Database>) -> UiResult<AutoMergePlan> {
     // only the creatorless fall back to category buckets.
     let mut buckets: std::collections::BTreeMap<String, Vec<(i64, i64)>> = Default::default();
     let mut skipped_unreadable = 0usize;
+    let mut skipped_non_cas = 0usize;
     let mut unreadable_names: Vec<String> = Vec::new();
     for (id, cat, size, abs, creator, display) in &survey.eligible {
+        if cat.as_deref() != Some("cas") {
+            skipped_non_cas += 1;
+            continue;
+        }
         let path = std::path::Path::new(abs);
         match plumbob_core::dbpf::package_merge_profile(path) {
             Ok((true, uncompressed)) => {
@@ -2491,6 +2499,7 @@ pub fn plan_auto_merge(dbm: &Mutex<Database>) -> UiResult<AutoMergePlan> {
         skipped_disabled: survey.skipped_disabled,
         skipped_unreadable,
         unreadable_names,
+        skipped_non_cas,
     })
 }
 
@@ -2675,5 +2684,371 @@ pub fn title_apply(
         renamed,
         skipped,
         examples,
+    })
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeModeStatus {
+    pub active: bool,
+    pub files: i64,
+    pub groups: i64,
+    /// Merged before sessions existed — adopted so un-merge still works.
+    pub legacy: bool,
+}
+
+pub fn merge_mode_status(dbm: &Mutex<Database>) -> UiResult<MergeModeStatus> {
+    let guard = lock_db(dbm)?;
+    if let Some(sess) = db::ops::active_merge_session(guard.conn()).map_err(err_str)? {
+        return Ok(MergeModeStatus {
+            active: true,
+            files: sess.files,
+            groups: sess.groups,
+            legacy: false,
+        });
+    }
+    // Legacy adoption: merged before sessions existed. Fingerprint =
+    // Merged_<Tag>_<stamp> outputs plus the pre-session per-merge backups.
+    let outputs = db::files::merged_output_files(guard.conn()).map_err(err_str)?;
+    if !outputs.is_empty() {
+        let legacy_backups = db::ops::list_backups(guard.conn())
+            .map_err(err_str)?
+            .into_iter()
+            .filter(|b| b.reason.starts_with("Automatic backup before merge ("))
+            .count();
+        if legacy_backups > 0 {
+            return Ok(MergeModeStatus {
+                active: true,
+                files: 0,
+                groups: outputs.len() as i64,
+                legacy: true,
+            });
+        }
+    }
+    Ok(MergeModeStatus {
+        active: false,
+        files: 0,
+        groups: 0,
+        legacy: false,
+    })
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeModeOutcome {
+    pub groups_done: usize,
+    pub files_merged: usize,
+    pub resources: usize,
+    pub failures: Vec<String>,
+}
+
+/// Enter merge mode: ONE whole-run backup, ONE journaled operation whose
+/// steps are the groups, all outputs remembered in the session — so
+/// un-merge is one click and the history is one entry, not sixty.
+pub fn auto_merge_run(dbm: &Mutex<Database>, data_dir: &Path) -> UiResult<MergeModeOutcome> {
+    ensure_game_closed()?;
+    {
+        let guard = lock_db(dbm)?;
+        if db::ops::active_merge_session(guard.conn())
+            .map_err(err_str)?
+            .is_some()
+        {
+            return Err("Already in merge mode — un-merge first.".to_string());
+        }
+    }
+    let plan = plan_auto_merge(dbm)?;
+    if plan.groups.is_empty() {
+        return Err("Nothing eligible to merge.".to_string());
+    }
+    let mut guard = lock_db(dbm)?;
+    let roots = resolve_roots(&guard, data_dir)?;
+
+    // One backup for the whole session.
+    let all_ids: Vec<i64> = plan
+        .groups
+        .iter()
+        .flat_map(|g| g.file_ids.iter().copied())
+        .collect();
+    let lookup = db::files::title_candidates(guard.conn(), Some(&all_ids), false)
+        .map_err(err_str)?;
+    let by_id: std::collections::HashMap<i64, _> =
+        lookup.into_iter().map(|c| (c.id, c)).collect();
+    let rels: Vec<std::path::PathBuf> = all_ids
+        .iter()
+        .filter_map(|id| by_id.get(id))
+        .map(|c| std::path::PathBuf::from(&c.relative_path))
+        .collect();
+    let (snapshot_dir, manifest) = {
+        let mut journal = db::ops::SqliteJournal::new(guard.conn());
+        let result = ops::create_snapshot(
+            &roots.mods,
+            &roots.backups,
+            &rels,
+            &format!("Merge mode — session backup ({} packages)", rels.len()),
+            &mut journal,
+        );
+        journal.finish().map_err(err_str)?;
+        result.map_err(err_str)?
+    };
+    let backup_id = db::ops::record_snapshot(guard.conn_mut(), &manifest, &snapshot_dir)
+        .map_err(err_str)?;
+
+    // One operation; each group is a step.
+    let op_uid = plumbob_core::ops::new_operation_id();
+    let mut journal = db::ops::SqliteJournal::new(guard.conn());
+    journal.record(plumbob_core::ops::JournalEvent::OperationStarted {
+        operation_id: op_uid.clone(),
+        kind: "merge".to_string(),
+        total_steps: plan.groups.len(),
+    });
+    let mods_base = roots.mods.path().to_path_buf();
+    let mut outputs: Vec<String> = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
+    let mut files_merged = 0usize;
+    let mut resources_total = 0usize;
+    for (step, g) in plan.groups.iter().enumerate() {
+        let mut map: std::collections::BTreeMap<(u32, u32, u64), Vec<u8>> = Default::default();
+        let mut merged_ids: Vec<(i64, String)> = Vec::new();
+        let mut ordered: Vec<&_> = g
+            .file_ids
+            .iter()
+            .filter_map(|id| by_id.get(id))
+            .collect();
+        ordered.sort_by_key(|c| c.relative_path.to_lowercase());
+        for c in ordered {
+            match plumbob_core::dbpf::read_package_resources(
+                std::path::Path::new(&c.absolute_path),
+                plumbob_core::dbpf::MERGE_ENTRY_CAP,
+            ) {
+                Ok(resources) => {
+                    for (k, payload) in resources {
+                        map.insert(k, payload);
+                    }
+                    merged_ids.push((c.id, c.absolute_path.clone()));
+                }
+                Err(_) => {}
+            }
+        }
+        if merged_ids.len() < 2 {
+            failures.push(format!("{}: fewer than two readable packages", g.label));
+            journal.record(plumbob_core::ops::JournalEvent::StepFailed {
+                operation_id: op_uid.clone(),
+                step,
+                action: "merge".to_string(),
+                source: std::path::PathBuf::from(&g.label),
+                message: "fewer than two readable packages".to_string(),
+            });
+            continue;
+        }
+        let resources: Vec<((u32, u32, u64), Vec<u8>)> = map.into_iter().collect();
+        let total: usize = resources.iter().map(|(_, p)| p.len()).sum();
+        if total as u64 + (resources.len() as u64 * 32) + 200 > u32::MAX as u64 {
+            failures.push(format!("{}: would exceed the 4 GB limit", g.label));
+            journal.record(plumbob_core::ops::JournalEvent::StepFailed {
+                operation_id: op_uid.clone(),
+                step,
+                action: "merge".to_string(),
+                source: std::path::PathBuf::from(&g.label),
+                message: "would exceed the 4 GB limit".to_string(),
+            });
+            continue;
+        }
+        let bytes = plumbob_core::dbpf::write_package(&resources);
+        let tag: String = g
+            .label
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .take(24)
+            .collect();
+        let name = format!(
+            "Merged_{}_{}.package",
+            if tag.is_empty() { "Batch".into() } else { tag },
+            chrono::Utc::now().format("%Y%m%d_%H%M%S")
+        );
+        let target = mods_base.join(&name);
+        let tmp = target.with_extension("mmnew");
+        if std::fs::write(&tmp, &bytes).is_err() || std::fs::rename(&tmp, &target).is_err() {
+            let _ = std::fs::remove_file(&tmp);
+            failures.push(format!("{}: could not write output", g.label));
+            continue;
+        }
+        for (id, abs) in &merged_ids {
+            let _ = std::fs::remove_file(abs);
+            db::files::mark_removed(guard.conn(), *id).map_err(err_str)?;
+        }
+        journal.record(plumbob_core::ops::JournalEvent::StepSucceeded {
+            operation_id: op_uid.clone(),
+            step,
+            action: "merge".to_string(),
+            source: std::path::PathBuf::from(&g.label),
+            destination: Some(target.clone()),
+            sha256: None,
+        });
+        outputs.push(target.to_string_lossy().into_owned());
+        files_merged += merged_ids.len();
+        resources_total += resources.len();
+    }
+    journal.record(plumbob_core::ops::JournalEvent::OperationFinished {
+        operation_id: op_uid,
+        status: if failures.is_empty() { "completed" } else { "partial" }.to_string(),
+        succeeded: outputs.len(),
+        failed: failures.len(),
+    });
+    journal.finish().map_err(err_str)?;
+    db::ops::create_merge_session(
+        guard.conn(),
+        backup_id,
+        files_merged as i64,
+        outputs.len() as i64,
+        &outputs,
+    )
+    .map_err(err_str)?;
+    Ok(MergeModeOutcome {
+        groups_done: outputs.len(),
+        files_merged,
+        resources: resources_total,
+        failures,
+    })
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UnMergeOutcome {
+    pub restored: usize,
+    pub skipped: usize,
+    pub outputs_removed: usize,
+}
+
+/// Leave merge mode: delete the session's outputs, restore the whole
+/// session backup under one journaled operation, deactivate. A Scan
+/// afterwards puts every row back the way it was.
+pub fn un_merge_run(dbm: &Mutex<Database>, data_dir: &Path) -> UiResult<UnMergeOutcome> {
+    ensure_game_closed()?;
+    let guard = lock_db(dbm)?;
+    let Some(session) = db::ops::active_merge_session(guard.conn()).map_err(err_str)? else {
+        return un_merge_legacy(&guard, data_dir);
+    };
+    let session = session;
+    let roots = resolve_roots(&guard, data_dir)?;
+    let backup = db::ops::list_backups(guard.conn())
+        .map_err(err_str)?
+        .into_iter()
+        .find(|b| b.id == session.backup_id)
+        .ok_or_else(|| "The session backup is missing from the records.".to_string())?;
+    let entries = db::ops::backup_entries(guard.conn(), session.backup_id).map_err(err_str)?;
+    let snap_entries: Vec<plumbob_core::ops::SnapshotEntry> = entries
+        .iter()
+        .map(|e| plumbob_core::ops::SnapshotEntry {
+            relative_path: PathBuf::from(&e.source_path),
+            sha256: e.sha256.clone(),
+            size_bytes: e.size_bytes as u64,
+        })
+        .collect();
+    let mut outputs_removed = 0usize;
+    for out in &session.outputs {
+        if std::fs::remove_file(out).is_ok() {
+            outputs_removed += 1;
+        }
+    }
+    let (restored, skipped) = {
+        let mut journal = db::ops::SqliteJournal::new(guard.conn());
+        let r = plumbob_core::ops::restore_snapshot_all(
+            &roots.mods,
+            &PathBuf::from(&backup.root_path),
+            &snap_entries,
+            &mut journal,
+        );
+        journal.finish().map_err(err_str)?;
+        r
+    };
+    db::ops::deactivate_merge_session(guard.conn(), session.id).map_err(err_str)?;
+    Ok(UnMergeOutcome {
+        restored,
+        skipped: skipped.len(),
+        outputs_removed,
+    })
+}
+
+/// Un-merge for libraries merged before sessions existed: remove every
+/// Merged_<Tag>_<stamp> output, then restore from ALL pre-session merge
+/// backups under one journaled operation.
+fn un_merge_legacy(
+    guard: &std::sync::MutexGuard<'_, Database>,
+    data_dir: &Path,
+) -> UiResult<UnMergeOutcome> {
+    let roots = resolve_roots(guard, data_dir)?;
+    let outputs = db::files::merged_output_files(guard.conn()).map_err(err_str)?;
+    let backups: Vec<_> = db::ops::list_backups(guard.conn())
+        .map_err(err_str)?
+        .into_iter()
+        .filter(|b| b.reason.starts_with("Automatic backup before merge ("))
+        .collect();
+    if outputs.is_empty() || backups.is_empty() {
+        return Err("Not in merge mode.".to_string());
+    }
+    let mut outputs_removed = 0usize;
+    for (id, abs) in &outputs {
+        if std::fs::remove_file(abs).is_ok() {
+            outputs_removed += 1;
+        }
+        db::files::mark_removed(guard.conn(), *id).map_err(err_str)?;
+    }
+    let op_uid = plumbob_core::ops::new_operation_id();
+    let mut journal = db::ops::SqliteJournal::new(guard.conn());
+    let total: usize = backups.len();
+    journal.record(plumbob_core::ops::JournalEvent::OperationStarted {
+        operation_id: op_uid.clone(),
+        kind: "restore_from_snapshot".to_string(),
+        total_steps: total,
+    });
+    let mut restored = 0usize;
+    let mut skipped = 0usize;
+    let mut step = 0usize;
+    for b in &backups {
+        let entries = db::ops::backup_entries(guard.conn(), b.id).map_err(err_str)?;
+        let dir = PathBuf::from(&b.root_path);
+        for e in &entries {
+            let snap = plumbob_core::ops::SnapshotEntry {
+                relative_path: PathBuf::from(&e.source_path),
+                sha256: e.sha256.clone(),
+                size_bytes: e.size_bytes as u64,
+            };
+            match plumbob_core::ops::restore_entry_verified(&roots.mods, &dir, &snap, false) {
+                Ok(dest) => {
+                    journal.record(plumbob_core::ops::JournalEvent::StepSucceeded {
+                        operation_id: op_uid.clone(),
+                        step,
+                        action: "restore".to_string(),
+                        source: dir.join(&e.source_path),
+                        destination: Some(dest),
+                        sha256: Some(e.sha256.clone()),
+                    });
+                    restored += 1;
+                }
+                Err(err) => {
+                    journal.record(plumbob_core::ops::JournalEvent::StepFailed {
+                        operation_id: op_uid.clone(),
+                        step,
+                        action: "restore".to_string(),
+                        source: dir.join(&e.source_path),
+                        message: err.to_string(),
+                    });
+                    skipped += 1;
+                }
+            }
+            step += 1;
+        }
+    }
+    journal.record(plumbob_core::ops::JournalEvent::OperationFinished {
+        operation_id: op_uid,
+        status: if skipped == 0 { "completed" } else { "partial" }.to_string(),
+        succeeded: restored,
+        failed: skipped,
+    });
+    journal.finish().map_err(err_str)?;
+    Ok(UnMergeOutcome {
+        restored,
+        skipped,
+        outputs_removed,
     })
 }

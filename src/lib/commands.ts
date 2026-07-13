@@ -279,6 +279,7 @@ export interface AutoMergePlan {
   skippedDisabled: number;
   skippedUnreadable: number;
   unreadableNames: string[];
+  skippedNonCas: number;
 }
 
 export const planAutoMerge = () => call<AutoMergePlan>("plan_auto_merge");
@@ -305,3 +306,27 @@ export const titlePlan = (fileIds: number[] | null, today: boolean) =>
 
 export const titleApply = (fileIds: number[] | null, today: boolean) =>
   call<TitleOutcome>("title_apply", { fileIds, today });
+
+export interface MergeModeStatus {
+  active: boolean;
+  files: number;
+  groups: number;
+  legacy: boolean;
+}
+
+export interface MergeModeOutcome {
+  groupsDone: number;
+  filesMerged: number;
+  resources: number;
+  failures: string[];
+}
+
+export interface UnMergeOutcome {
+  restored: number;
+  skipped: number;
+  outputsRemoved: number;
+}
+
+export const mergeModeStatus = () => call<MergeModeStatus>("merge_mode_status");
+export const autoMergeRun = () => call<MergeModeOutcome>("auto_merge_run");
+export const unMergeRun = () => call<UnMergeOutcome>("un_merge_run");

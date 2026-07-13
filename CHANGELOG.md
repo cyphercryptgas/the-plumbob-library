@@ -12,6 +12,43 @@ destructive step journaled, snapshotted, and reversible. The history
 below tells the whole story, defect confessions included.
 
 
+## 0.29.0 — Merge Mode
+
+* **Merging is a mode now, not a transform.** The field verdict was
+  exact: sixty-seven separate backups and operations made history
+  unnavigable and un-merging practically impossible — and a merged
+  library trades away per-file superpowers (updates, titling, per-file
+  restore). So the quick action is a switch: one click takes a **single
+  whole-session backup** (one Backups entry), merges every group under
+  **one journaled operation** (one Activity entry, groups as steps),
+  and lights the tile green. **Click it again to un-merge**: the merged
+  files are removed and every original is restored from the session
+  backup in one journaled pass. Run a Scan on either side of the switch.
+* **Only CAS files merge — everything else stays loose by design.**
+  Character content is where the file-count wins live and where merging
+  is safest; Build/Buy, gameplay, poses, and the rest keep their
+  individual files. The plan dialog counts every non-CAS skip.
+* **Libraries merged before merge mode are adopted.** The button
+  recognizes the old state — Merged outputs plus the per-merge backups —
+  lights green, and un-merge restores across all of those backups under
+  one journaled operation, so an improper merge can be unwound and
+  redone the new way.
+* Manual Library-selection merges are unchanged: small, deliberate,
+  snapshot-per-merge.
+
+## 0.28.2 — Shadow Cleanup
+
+* **Disabled files no longer count as conflicts.** The conflict engine
+  (and the post-update overlap warning) considered every current file —
+  but a disabled package never loads, so it can never conflict. Both
+  queries now require enabled files on all sides.
+* **Set aside, one click.** Every overridden row in Conflicts carries a
+  Set aside button: the shadowed copy moves to Quarantine (reversible),
+  the winner keeps loading, and the list refreshes. Built for exactly
+  the post-merge picture: an Old CC archive whose live twins now live
+  inside Merged files — the game's behavior never changed, and now the
+  noise is a tap away from gone.
+
 ## 0.28.1 — The Shell Speaks Only Core
 
 * Installer fix: the Title Tool's plan builder named rusqlite types

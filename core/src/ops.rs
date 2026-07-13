@@ -680,6 +680,115 @@ fn snapshot_one(
 /// replacing a live file with damaged bytes. Overwriting an existing file
 /// requires `overwrite = true` and stages through a verified temp copy so the
 /// unprotected window is as small as the final rename.
+/// Restore every entry of a snapshot under ONE journaled operation — the
+/// un-merge path. Occupied destinations are skipped and reported, never
+/// overwritten; a corrupt backup copy fails its own step and the rest
+/// continue. Returns (restored, skipped-with-reasons).
+pub fn restore_snapshot_all(
+    mods: &SafeRoot,
+    snapshot_dir: &Path,
+    entries: &[SnapshotEntry],
+    journal: &mut dyn JournalSink,
+) -> (usize, Vec<(PathBuf, String)>) {
+    let operation_id = new_operation_id();
+    journal.record(JournalEvent::OperationStarted {
+        operation_id: operation_id.clone(),
+        kind: "restore_from_snapshot".into(),
+        total_steps: entries.len(),
+    });
+    let mut restored = 0usize;
+    let mut skipped: Vec<(PathBuf, String)> = Vec::new();
+    for (step, entry) in entries.iter().enumerate() {
+        match restore_entry_verified(mods, snapshot_dir, entry, false) {
+            Ok(dest) => {
+                journal.record(JournalEvent::StepSucceeded {
+                    operation_id: operation_id.clone(),
+                    step,
+                    action: "restore".into(),
+                    source: snapshot_dir.join(&entry.relative_path),
+                    destination: Some(dest),
+                    sha256: Some(entry.sha256.clone()),
+                });
+                restored += 1;
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                journal.record(JournalEvent::StepFailed {
+                    operation_id: operation_id.clone(),
+                    step,
+                    action: "restore".into(),
+                    source: snapshot_dir.join(&entry.relative_path),
+                    message: msg.clone(),
+                });
+                skipped.push((entry.relative_path.clone(), msg));
+            }
+        }
+    }
+    journal.record(JournalEvent::OperationFinished {
+        operation_id,
+        status: if skipped.is_empty() { "completed" } else { "partial" }.into(),
+        succeeded: restored,
+        failed: skipped.len(),
+    });
+    (restored, skipped)
+}
+
+/// The verified single-entry restore both paths share: hash-check the
+/// stored copy, place it, and refuse occupied destinations unless told.
+pub fn restore_entry_verified(
+    mods: &SafeRoot,
+    snapshot_dir: &Path,
+    entry: &SnapshotEntry,
+    overwrite: bool,
+) -> Result<PathBuf, OpError> {
+    let stored = snapshot_dir.join(&entry.relative_path);
+    if !stored.is_file() {
+        return Err(OpError::SourceMissing(stored));
+    }
+    let stored_hash = sha256_file(&stored).map_err(|e| OpError::Io {
+        path: stored.clone(),
+        source: e,
+    })?;
+    if stored_hash != entry.sha256 {
+        return Err(OpError::HashMismatch {
+            path: stored,
+            expected: entry.sha256.clone(),
+            found: stored_hash,
+        });
+    }
+    let destination = mods.resolve_relative(&entry.relative_path)?;
+    if destination.exists() && !overwrite {
+        return Err(OpError::DestinationOccupied(destination));
+    }
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| OpError::Io {
+            path: parent.to_path_buf(),
+            source: e,
+        })?;
+    }
+    if !destination.exists() {
+        std::fs::copy(&stored, &destination).map_err(|e| OpError::Io {
+            path: destination.clone(),
+            source: e,
+        })?;
+        let placed = sha256_file(&destination).map_err(|e| OpError::Io {
+            path: destination.clone(),
+            source: e,
+        })?;
+        if placed != entry.sha256 {
+            let _ = std::fs::remove_file(&destination);
+            return Err(OpError::HashMismatch {
+                path: destination,
+                expected: entry.sha256.clone(),
+                found: placed,
+            });
+        }
+        return Ok(destination);
+    }
+    // overwrite path stays with the original single-entry function.
+    Err(OpError::DestinationOccupied(destination))
+}
+
 pub fn restore_from_snapshot(
     mods: &SafeRoot,
     snapshot_dir: &Path,

@@ -1344,3 +1344,33 @@ pub fn apply_rename(
     )?;
     Ok(())
 }
+
+/// Current Merged_<Tag>_<stamp>.package outputs — the fingerprint of a
+/// merge run, session-tracked or legacy.
+pub fn merged_output_files(conn: &Connection) -> Result<Vec<(i64, String)>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, absolute_path, current_filename FROM files
+         WHERE missing = 0 AND status = 'current'
+           AND current_filename LIKE 'Merged_%'",
+    )?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let re_ok = |name: &str| {
+        let stem = name.strip_suffix(".package").unwrap_or("");
+        let parts: Vec<&str> = stem.split('_').collect();
+        parts.len() >= 3
+            && parts[0] == "Merged"
+            && parts[parts.len() - 2].len() == 8
+            && parts[parts.len() - 1].len() == 6
+            && parts[parts.len() - 2].chars().all(|c| c.is_ascii_digit())
+            && parts[parts.len() - 1].chars().all(|c| c.is_ascii_digit())
+    };
+    Ok(rows
+        .into_iter()
+        .filter(|(_, _, name)| re_ok(name))
+        .map(|(id, abs, _)| (id, abs))
+        .collect())
+}

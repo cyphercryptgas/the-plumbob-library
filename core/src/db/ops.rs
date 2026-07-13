@@ -771,3 +771,68 @@ pub fn has_backup_at(conn: &Connection, root_path: &str) -> Result<bool, DbError
     )?;
     Ok(n > 0)
 }
+
+pub struct MergeSession {
+    pub id: i64,
+    pub backup_id: i64,
+    pub files: i64,
+    pub groups: i64,
+    pub outputs: Vec<String>,
+}
+
+pub fn create_merge_session(
+    conn: &Connection,
+    backup_id: i64,
+    files: i64,
+    groups: i64,
+    outputs: &[String],
+) -> Result<i64, DbError> {
+    conn.execute(
+        "INSERT INTO merge_sessions (created_at, backup_id, files, groups_n, active)
+         VALUES (datetime('now'), ?1, ?2, ?3, 1)",
+        params![backup_id, files, groups],
+    )?;
+    let id = conn.last_insert_rowid();
+    let mut stmt = conn.prepare(
+        "INSERT INTO merge_session_outputs (session_id, absolute_path) VALUES (?1, ?2)",
+    )?;
+    for out in outputs {
+        stmt.execute(params![id, out])?;
+    }
+    Ok(id)
+}
+
+pub fn active_merge_session(conn: &Connection) -> Result<Option<MergeSession>, DbError> {
+    let row = conn
+        .query_row(
+            "SELECT id, backup_id, files, groups_n FROM merge_sessions
+             WHERE active = 1 ORDER BY id DESC LIMIT 1",
+            [],
+            |r| Ok((r.get::<_, i64>(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()?;
+    let Some((id, backup_id, files, groups)) = row else {
+        return Ok(None);
+    };
+    let mut stmt = conn.prepare(
+        "SELECT absolute_path FROM merge_session_outputs WHERE session_id = ?1",
+    )?;
+    let outputs = stmt
+        .query_map(params![id], |r| r.get(0))?
+        .collect::<Result<Vec<String>, _>>()?;
+    Ok(Some(MergeSession {
+        id,
+        backup_id,
+        files,
+        groups,
+        outputs,
+    }))
+}
+
+pub fn deactivate_merge_session(conn: &Connection, id: i64) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE merge_sessions SET active = 0 WHERE id = ?1",
+        params![id],
+    )?;
+    Ok(())
+}

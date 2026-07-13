@@ -3,13 +3,15 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { getThumbnails } from "../lib/commands";
 import {
   checkCurseUpdates,
+  autoMergeRun,
+  mergeModeStatus,
   titleApply,
   titlePlan,
+  unMergeRun,
   listBackups,
   listConflicts,
   listDuplicateGroups,
   listOperations,
-  mergeFiles,
   planAutoMerge,
   prepareThumbnails,
 } from "../lib/commands";
@@ -119,13 +121,18 @@ function ActionTile(props: {
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  lit?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={props.onClick}
       disabled={props.disabled}
-      className="gold-edge-card flex flex-col items-center gap-2 rounded-card px-2 py-4 font-display text-[13px] font-semibold text-ink-secondary transition-all hover:-translate-y-0.5 hover:text-ink hover:shadow-[0_0_0_1.4px_rgba(210,170,92,0.9),0_0_20px_rgba(210,170,92,0.45)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-none"
+      className={`gold-edge-card flex flex-col items-center gap-2 rounded-card px-2 py-4 font-display text-[13px] font-semibold transition-all hover:-translate-y-0.5 hover:text-ink hover:shadow-[0_0_0_1.4px_rgba(210,170,92,0.9),0_0_20px_rgba(210,170,92,0.45)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-none ${
+        props.lit
+          ? "bg-sage-soft text-sage-deep shadow-[0_0_0_1.4px_rgba(74,124,89,0.9),0_0_16px_rgba(74,124,89,0.45)]"
+          : "text-ink-secondary"
+      }`}
     >
       <span className="icon-chip flex h-10 w-10 items-center justify-center rounded-xl">
         <Icon name={props.icon} size={18} />
@@ -150,15 +157,45 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
   } = useApp();
   const [quickBusy, setQuickBusy] = useState<string | null>(null);
   const [quickNote, setQuickNote] = useState<string | null>(null);
+  const [mergeMode, setMergeMode] = useState<boolean>(false);
+  const [mergeLegacy, setMergeLegacy] = useState<boolean>(false);
+
+  useEffect(() => {
+    mergeModeStatus()
+      .then((s) => {
+        setMergeMode(s.active);
+        setMergeLegacy(s.legacy);
+      })
+      .catch(() => {});
+  }, [libraryVersion]);
 
   const runAutoMerge = async () => {
     setQuickBusy("merge");
     setQuickNote(null);
     try {
+      if (mergeMode) {
+        if (
+          !window.confirm(
+            mergeLegacy
+              ? "Un-merge the existing merged library?\n\nThis merge predates merge mode: the Merged files are removed and every original is restored from the per-merge backups — all under one operation. Run a Scan afterwards, then re-enter merge mode the new way (CAS-only, one session)."
+              : "Leave merge mode?\n\nThe merged files are removed and every original is restored from the session backup in one operation. Run a Scan afterwards."
+          )
+        )
+          return;
+        const out = await unMergeRun();
+        setMergeMode(false);
+        setMergeLegacy(false);
+        setQuickNote(
+          `Un-merged: ${out.restored.toLocaleString()} originals restored, ${out.outputsRemoved} merged files removed` +
+            (out.skipped > 0 ? `, ${out.skipped} skipped (see Activity)` : "") +
+            ". Run a Scan to refresh the Library."
+        );
+        return;
+      }
       const plan = await planAutoMerge();
       if (plan.groups.length === 0) {
         setQuickNote(
-          `Nothing to auto-merge: ${plan.skippedMatched.toLocaleString()} CurseForge-matched and ${plan.skippedDisabled.toLocaleString()} disabled packages stay loose by design.`
+          `Nothing to merge: only CAS files merge — ${plan.skippedNonCas.toLocaleString()} non-CAS, ${plan.skippedMatched.toLocaleString()} CurseForge-matched, and ${plan.skippedDisabled.toLocaleString()} disabled packages stay loose by design.`
         );
         return;
       }
@@ -172,31 +209,16 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
           : top;
       if (
         !window.confirm(
-          `Auto-merge ${plan.totalFiles.toLocaleString()} packages into ${plan.groups.length} merged files by category — ${summary}.\n\nSkipped on purpose: ${plan.skippedMatched.toLocaleString()} CurseForge-matched (they'd lose updates), ${plan.skippedDisabled.toLocaleString()} disabled${plan.skippedUnreadable > 0 ? `, and ${plan.skippedUnreadable.toLocaleString()} with entries our pipeline can't decode (e.g. ${plan.unreadableNames.slice(0, 2).join(", ")}) — those stay loose and keep working in-game` : ""}.\n\nOriginals are backed up first, then removed. Proceed?`
+          `Enter merge mode? ${plan.totalFiles.toLocaleString()} packages → ${plan.groups.length} merged files — ${summary}.\n\nOne session backup, one history entry, one click to un-merge. Only CAS files merge. Skipped by design: ${plan.skippedNonCas.toLocaleString()} non-CAS, ${plan.skippedMatched.toLocaleString()} CurseForge-matched, ${plan.skippedDisabled.toLocaleString()} disabled${plan.skippedUnreadable > 0 ? `, ${plan.skippedUnreadable} undecodable` : ""}.\n\nProceed?`
         )
       )
         return;
-      let done = 0;
-      let resources = 0;
-      let filesMerged = 0;
-      const failures: string[] = [];
-      for (const g of plan.groups) {
-        setQuickNote(`Merging… ${done + failures.length + 1}/${plan.groups.length} (${g.label})`);
-        try {
-          const out = await mergeFiles(g.fileIds, g.label);
-          done += 1;
-          resources += out.stats.resourcesOut;
-          filesMerged += out.stats.sources;
-        } catch (e) {
-          failures.push(`${g.label} — ${String(e).slice(0, 90)}`);
-        }
-      }
+      const out = await autoMergeRun();
+      setMergeMode(true);
       setQuickNote(
-        `Auto-merge finished: ${filesMerged.toLocaleString()} packages → ${done} merged files (${resources.toLocaleString()} resources)` +
-          (failures.length > 0
-            ? `; ${failures.length} group(s) skipped: ${failures.slice(0, 2).join("; ")}${failures.length > 2 ? "; …" : ""}`
-            : "") +
-          ". Run a Scan to see them."
+        `Merge mode ON: ${out.filesMerged.toLocaleString()} packages → ${out.groupsDone} merged files (${out.resources.toLocaleString()} resources)` +
+          (out.failures.length > 0 ? `; ${out.failures.length} group(s) skipped` : "") +
+          ". Run a Scan. Click again anytime to un-merge."
       );
     } catch (e) {
       reportError(String(e));
@@ -726,9 +748,18 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
               />
               <ActionTile
                 icon="merge"
-                label={quickBusy === "merge" ? "Merging…" : "Merge packages"}
+                label={
+                  quickBusy === "merge"
+                    ? mergeMode
+                      ? "Un-merging…"
+                      : "Merging…"
+                    : mergeMode
+                      ? "Merged mode — un-merge"
+                      : "Merge packages"
+                }
                 onClick={() => void runAutoMerge()}
                 disabled={quickBusy !== null}
+                lit={mergeMode}
               />
               <ActionTile
                 icon="image"
