@@ -592,3 +592,17 @@ pub fn open_external(url: String) -> UiResult<()> {
     }
     open::that(&url).map_err(|e| format!("Couldn't open the browser: {e}"))
 }
+
+#[tauri::command]
+pub async fn get_thumbnails(
+    state: State<'_, AppState>,
+    file_ids: Vec<i64>,
+) -> UiResult<Vec<service::ThumbDto>> {
+    let dbm = state.db.clone();
+    let data_dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        service::thumbnails(&dbm, &data_dir, &file_ids)
+    })
+    .await
+    .map_err(|e| format!("The thumbnail task failed unexpectedly: {e}"))?
+}

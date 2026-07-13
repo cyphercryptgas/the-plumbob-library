@@ -61,6 +61,7 @@ fn main() {
             commands::check_curse_updates,
             commands::curse_status,
             commands::open_external,
+            commands::get_thumbnails,
             commands::list_quarantine,
             commands::list_backups,
             commands::list_backup_entries,

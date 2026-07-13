@@ -1439,3 +1439,69 @@ pub fn curse_status(
     let guard = lock_db(dbm)?;
     db::curse::status(guard.conn()).map_err(err_str)
 }
+
+// ---------------------------------------------------------------------------
+// Thumbnails
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ThumbDto {
+    pub file_id: i64,
+    /// Absolute path into the thumbnail cache, or None when the package
+    /// carries no extractable image.
+    pub path: Option<String>,
+}
+
+/// Disk-cached, lazily extracted in-game thumbnails. Rows are fetched
+/// under one short lock; all parsing and decompression happens unlocked.
+/// The filesystem is the cache: `{id}.png` / `{id}.jpg`, with `{id}.none`
+/// remembering packages that yielded nothing so they aren't re-parsed on
+/// every visit.
+pub fn thumbnails(
+    dbm: &Mutex<Database>,
+    data_dir: &Path,
+    file_ids: &[i64],
+) -> UiResult<Vec<ThumbDto>> {
+    let cache = data_dir.join("Thumbnails");
+    std::fs::create_dir_all(&cache).map_err(err_str)?;
+    let rows = {
+        let guard = lock_db(dbm)?;
+        db::files::files_by_ids(guard.conn(), file_ids).map_err(err_str)?
+    };
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let png = cache.join(format!("{}.png", row.id));
+        let jpg = cache.join(format!("{}.jpg", row.id));
+        let none = cache.join(format!("{}.none", row.id));
+        let cached = if png.exists() {
+            Some(png)
+        } else if jpg.exists() {
+            Some(jpg)
+        } else if none.exists() {
+            None
+        } else if row.missing || row.file_type != "package" {
+            None
+        } else {
+            match plumbob_core::dbpf::extract_thumbnail(Path::new(&row.absolute_path)) {
+                Ok(Some((bytes, ext))) => {
+                    let target = cache.join(format!("{}.{ext}", row.id));
+                    if std::fs::write(&target, &bytes).is_ok() {
+                        Some(target)
+                    } else {
+                        None
+                    }
+                }
+                _ => {
+                    let _ = std::fs::write(&none, b"");
+                    None
+                }
+            }
+        };
+        out.push(ThumbDto {
+            file_id: row.id,
+            path: cached.map(|p| p.to_string_lossy().into_owned()),
+        });
+    }
+    Ok(out)
+}

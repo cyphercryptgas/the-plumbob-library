@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import * as api from "../lib/commands";
 import { formatBytes, formatDateTime, plural } from "../lib/format";
 import type { FileRow, LibraryFilter } from "../lib/types";
@@ -76,6 +77,33 @@ export function Library(props: { initialSearch?: string }) {
     added_desc: "Newest first",
     added_asc: "Oldest first",
   };
+  const [view, setView] = useState<"list" | "grid">("list");
+  const [thumbs, setThumbs] = useState<Record<number, string | null>>({});
+
+  useEffect(() => {
+    if (view !== "grid" || rows.length === 0) return;
+    const missing = rows.map((r) => r.id).filter((id) => !(id in thumbs));
+    if (missing.length === 0) return;
+    let cancelled = false;
+    api
+      .getThumbnails(missing)
+      .then((got) => {
+        if (cancelled) return;
+        setThumbs((prev) => {
+          const next = { ...prev };
+          for (const t of got) {
+            next[t.fileId] = t.path ? convertFileSrc(t.path) : null;
+          }
+          return next;
+        });
+      })
+      .catch(reportError);
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, rows]);
+
   const cycleSort = () =>
     setSort((s) =>
       s === "name" ? "added_desc" : s === "added_desc" ? "added_asc" : "name"
@@ -215,6 +243,14 @@ export function Library(props: { initialSearch?: string }) {
           >
             {SORT_LABEL[sort]} ⇅
           </button>
+          <button
+            type="button"
+            onClick={() => setView((v) => (v === "list" ? "grid" : "list"))}
+            title="Toggle between the file list and in-game thumbnails"
+            className="rounded-control border border-border-subtle px-2.5 py-1 text-xs text-ink-secondary transition hover:border-gold/60"
+          >
+            {view === "list" ? "Grid ▦" : "List ☰"}
+          </button>
         </div>
         <div
           className="mt-3 flex flex-wrap items-center gap-1.5"
@@ -298,6 +334,47 @@ export function Library(props: { initialSearch?: string }) {
           }
         />
       ) : (
+        view === "grid" ? (
+          <Card>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+              {rows.map((f) => (
+                <div key={f.id} className="min-w-0">
+                  <div
+                    className={`raised-pill flex aspect-square items-center justify-center overflow-hidden rounded-xl border border-gold/40 bg-soft ${f.enabled ? "" : "opacity-60"}`}
+                    title={f.relativePath}
+                  >
+                    {thumbs[f.id] ? (
+                      <img
+                        src={thumbs[f.id] as string}
+                        alt=""
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <span className="font-display text-2xl font-bold text-[#94875e]">
+                        {f.currentFilename.charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    className={`mt-1 truncate text-xs ${f.enabled ? "text-ink" : "text-ink-muted"}`}
+                    title={f.currentFilename}
+                  >
+                    {f.currentFilename}
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {f.category && CATEGORY_BADGE[f.category] ? (
+                      <Pill tone="sage">{CATEGORY_BADGE[f.category]}</Pill>
+                    ) : null}
+                    {!f.enabled && f.status === "current" ? (
+                      <Pill tone="neutral">off</Pill>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        ) : (
         <Card className="overflow-hidden !p-0">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-border-subtle bg-soft text-xs uppercase tracking-wide text-ink-muted">
@@ -428,6 +505,7 @@ export function Library(props: { initialSearch?: string }) {
             </tbody>
           </table>
         </Card>
+        )
       )}
 
       <div className="flex items-center justify-between">

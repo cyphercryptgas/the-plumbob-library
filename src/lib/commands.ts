@@ -183,3 +183,11 @@ export const curseStatus = () => call<CurseStatusRow[]>("curse_status");
 
 export const openExternal = (url: string) =>
   call<void>("open_external", { url });
+
+export interface ThumbDto {
+  fileId: number;
+  path: string | null;
+}
+
+export const getThumbnails = (fileIds: number[]) =>
+  call<ThumbDto[]>("get_thumbnails", { fileIds });

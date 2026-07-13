@@ -76,12 +76,26 @@ impl ResourceKey {
     }
 }
 
+/// Where a resource's payload lives and how it's stored — retained so
+/// thumbnails can be extracted without a second index parse.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct EntryMeta {
+    pub position: u32,
+    /// On-disk byte count (bit 31, the compressed marker, already masked).
+    pub size: u32,
+    pub mem_size: u32,
+    /// 0x0000 uncompressed · 0x5A42 zlib · anything else unsupported here.
+    pub compression: u16,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PackageIndex {
     pub major: u32,
     pub minor: u32,
     pub keys: Vec<ResourceKey>,
+    /// Parallel to `keys`.
+    pub entries: Vec<EntryMeta>,
 }
 
 impl PackageIndex {
@@ -123,6 +137,7 @@ pub fn read_package_index(path: &Path) -> Result<PackageIndex, DbpfError> {
             major,
             minor,
             keys: Vec::new(),
+            entries: Vec::new(),
         });
     }
     if entry_count > MAX_ENTRIES {
@@ -175,6 +190,7 @@ pub fn read_package_index(path: &Path) -> Result<PackageIndex, DbpfError> {
     file.read_exact(&mut body)?;
 
     let mut keys = Vec::with_capacity(entry_count as usize);
+    let mut entries = Vec::with_capacity(entry_count as usize);
     let mut off = 0usize;
     for _ in 0..entry_count {
         let type_id = if const_type {
@@ -200,9 +216,17 @@ pub fn read_package_index(path: &Path) -> Result<PackageIndex, DbpfError> {
         };
         let lo = u32le(&body, off);
         off += 4;
-        // position, file size (bit 31 = compression flag), mem size,
-        // compression + committed words — not needed for resource identity.
+        let position = u32le(&body, off);
+        let size = u32le(&body, off + 4) & 0x7FFF_FFFF;
+        let mem_size = u32le(&body, off + 8);
+        let compression = u16::from(body[off + 12]) | u16::from(body[off + 13]) << 8;
         off += 16;
+        entries.push(EntryMeta {
+            position,
+            size,
+            mem_size,
+            compression,
+        });
         keys.push(ResourceKey {
             type_id,
             group_id,
@@ -210,7 +234,12 @@ pub fn read_package_index(path: &Path) -> Result<PackageIndex, DbpfError> {
         });
     }
 
-    Ok(PackageIndex { major, minor, keys })
+    Ok(PackageIndex {
+        major,
+        minor,
+        keys,
+        entries,
+    })
 }
 
 /// Friendly names for the resource types conflict displays care about,
@@ -501,5 +530,193 @@ mod tests {
         assert_eq!(resource_type_name(0xDEADBEEF), None);
         assert!(type_is_presentation_only(0x3C1AF1F2));
         assert!(!type_is_presentation_only(0x545AC67A));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Thumbnail extraction
+// ---------------------------------------------------------------------------
+
+const PNG_MAGIC: [u8; 4] = [0x89, b'P', b'N', b'G'];
+const JPG_MAGIC: [u8; 3] = [0xFF, 0xD8, 0xFF];
+const COMP_NONE: u16 = 0x0000;
+const COMP_ZLIB: u16 = 0x5A42;
+const MAX_THUMB_BYTES: u64 = 16 * 1024 * 1024;
+
+/// Thumbnail-bearing image types, in preference order — the dedicated
+/// thumbnail type first, DDS deliberately excluded (needs conversion).
+const THUMB_TYPES: [u32; 3] = [0x3C1A_F1F2, 0x5B28_2D45, 0x2F7D_0004];
+
+/// Pull the best in-game image out of a package: PNG or JPEG payloads
+/// only, decompressing zlib entries, sniffing magic bytes, and skipping —
+/// never failing on — anything it can't decode. `Ok(None)` simply means
+/// this package carries no extractable thumbnail.
+pub fn extract_thumbnail(path: &Path) -> Result<Option<(Vec<u8>, &'static str)>, DbpfError> {
+    let index = read_package_index(path)?;
+    let mut file = File::open(path)?;
+    for wanted in THUMB_TYPES {
+        let mut candidates: Vec<&EntryMeta> = index
+            .keys
+            .iter()
+            .zip(index.entries.iter())
+            .filter(|(k, _)| k.type_id == wanted)
+            .map(|(_, e)| e)
+            .collect();
+        // Bigger memory size ≈ bigger picture.
+        candidates.sort_by_key(|e| std::cmp::Reverse(e.mem_size));
+        for entry in candidates {
+            if u64::from(entry.size) > MAX_THUMB_BYTES
+                || u64::from(entry.mem_size) > MAX_THUMB_BYTES
+            {
+                continue;
+            }
+            if file.seek(SeekFrom::Start(u64::from(entry.position))).is_err() {
+                continue;
+            }
+            let mut raw = vec![0u8; entry.size as usize];
+            if file.read_exact(&mut raw).is_err() {
+                continue;
+            }
+            let payload: Vec<u8> = match entry.compression {
+                COMP_NONE => raw,
+                COMP_ZLIB => {
+                    use std::io::Read as _;
+                    let mut out = Vec::with_capacity(entry.mem_size as usize);
+                    let mut dec = flate2::read::ZlibDecoder::new(raw.as_slice());
+                    match dec
+                        .by_ref()
+                        .take(MAX_THUMB_BYTES)
+                        .read_to_end(&mut out)
+                    {
+                        Ok(_) => out,
+                        Err(_) => continue,
+                    }
+                }
+                _ => continue,
+            };
+            if payload.len() >= 4 && payload[..4] == PNG_MAGIC {
+                return Ok(Some((payload, "png")));
+            }
+            if payload.len() >= 3 && payload[..3] == JPG_MAGIC {
+                return Ok(Some((payload, "jpg")));
+            }
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(test)]
+mod thumb_tests {
+    use super::*;
+    use std::io::Write;
+
+    /// Byte-level package builder mirroring exactly what the parser reads:
+    /// 96-byte header (magic, 2.0, count @0x24, index pos @0x40), payloads,
+    /// then a flags=0 index of full 32-byte entries.
+    fn build_package(resources: &[(u32, u16, &[u8], u32)]) -> Vec<u8> {
+        let mut out = vec![0u8; 96];
+        out[0..4].copy_from_slice(b"DBPF");
+        out[4..8].copy_from_slice(&2u32.to_le_bytes());
+        out[8..12].copy_from_slice(&0u32.to_le_bytes());
+        out[0x24..0x28].copy_from_slice(&(resources.len() as u32).to_le_bytes());
+        let mut placed: Vec<(u32, u32)> = Vec::new();
+        for (_, _, payload, _) in resources {
+            let pos = out.len() as u32;
+            out.extend_from_slice(payload);
+            placed.push((pos, payload.len() as u32));
+        }
+        let index_pos = out.len() as u32;
+        out[0x40..0x44].copy_from_slice(&index_pos.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes()); // flags: no constants
+        for (i, (type_id, compression, _, mem_size)) in resources.iter().enumerate() {
+            let (pos, size) = placed[i];
+            out.extend_from_slice(&type_id.to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes()); // group
+            out.extend_from_slice(&0u32.to_le_bytes()); // instance hi
+            out.extend_from_slice(&(i as u32 + 1).to_le_bytes()); // instance lo
+            out.extend_from_slice(&pos.to_le_bytes());
+            let flagged = size | if *compression != 0 { 0x8000_0000 } else { 0 };
+            out.extend_from_slice(&flagged.to_le_bytes());
+            out.extend_from_slice(&mem_size.to_le_bytes());
+            out.extend_from_slice(&compression.to_le_bytes());
+            out.extend_from_slice(&1u16.to_le_bytes()); // committed
+        }
+        out
+    }
+
+    fn zlib(data: &[u8]) -> Vec<u8> {
+        let mut enc =
+            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        enc.write_all(data).unwrap();
+        enc.finish().unwrap()
+    }
+
+    fn png_bytes() -> Vec<u8> {
+        let mut v = PNG_MAGIC.to_vec();
+        v.extend_from_slice(b"fake-but-magic");
+        v
+    }
+
+    fn jpg_bytes() -> Vec<u8> {
+        let mut v = JPG_MAGIC.to_vec();
+        v.extend_from_slice(b"jfif-ish");
+        v
+    }
+
+    fn write_tmp(bytes: &[u8]) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("t.package");
+        std::fs::write(&p, bytes).unwrap();
+        (dir, p)
+    }
+
+    #[test]
+    fn uncompressed_png_extracts_and_meta_round_trips() {
+        let png = png_bytes();
+        let pkg = build_package(&[(0x3C1A_F1F2, COMP_NONE, &png, png.len() as u32)]);
+        let (_d, p) = write_tmp(&pkg);
+        let idx = read_package_index(&p).unwrap();
+        assert_eq!(idx.entries.len(), 1);
+        assert_eq!(idx.entries[0].compression, COMP_NONE);
+        assert_eq!(idx.entries[0].size as usize, png.len());
+        let (bytes, ext) = extract_thumbnail(&p).unwrap().unwrap();
+        assert_eq!(ext, "png");
+        assert_eq!(bytes, png);
+    }
+
+    #[test]
+    fn zlib_jpeg_decompresses_by_declared_codec() {
+        let jpg = jpg_bytes();
+        let packed = zlib(&jpg);
+        let pkg = build_package(&[(0x2F7D_0004, COMP_ZLIB, &packed, jpg.len() as u32)]);
+        let (_d, p) = write_tmp(&pkg);
+        let (bytes, ext) = extract_thumbnail(&p).unwrap().unwrap();
+        assert_eq!(ext, "jpg");
+        assert_eq!(bytes, jpg);
+    }
+
+    #[test]
+    fn preference_order_picks_the_thumbnail_type_first() {
+        let png = png_bytes();
+        let jpg = jpg_bytes();
+        let pkg = build_package(&[
+            (0x2F7D_0004, COMP_NONE, &jpg, jpg.len() as u32),
+            (0x3C1A_F1F2, COMP_NONE, &png, png.len() as u32),
+        ]);
+        let (_d, p) = write_tmp(&pkg);
+        let (_, ext) = extract_thumbnail(&p).unwrap().unwrap();
+        assert_eq!(ext, "png", "0x3C1AF1F2 outranks 0x2F7D0004");
+    }
+
+    #[test]
+    fn corrupt_and_foreign_payloads_fall_through_to_none() {
+        let garbage = b"not-zlib-at-all".to_vec();
+        let dds = b"DDS |not-extractable".to_vec();
+        let pkg = build_package(&[
+            (0x3C1A_F1F2, COMP_ZLIB, &garbage, 64),
+            (0x3453_CF95, COMP_NONE, &dds, dds.len() as u32),
+        ]);
+        let (_d, p) = write_tmp(&pkg);
+        assert!(extract_thumbnail(&p).unwrap().is_none());
     }
 }

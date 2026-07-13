@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.10.0 — The Gallery
+
+* **Your mods, as they look in game.** The Library gains a Grid ▦ / List ☰
+  toggle: tiles show each package's extracted in-game thumbnail, with the
+  file name, category badge, and the "off" state (dimmed) underneath.
+  Filters, sorting, search, and paging all apply to the grid identically.
+* **How extraction works.** The DBPF parser now retains what it used to
+  skip — each resource's payload position, sizes, and compression — and a
+  new extractor pulls the best image from the thumbnail resource types
+  the conflicts research already named, decompressing zlib payloads and
+  sniffing PNG/JPEG magic. Anything undecodable is skipped, never fatal;
+  DDS-only packages honestly yield no tile (a letter placeholder stands
+  in). Proven against synthetic packages the tests construct byte by
+  byte, including codec fall-through.
+* **Cached forever.** Extractions land in a Thumbnails folder in the
+  app's data directory — including "nothing here" markers — so each
+  package is parsed for images at most once. First visit to a grid page
+  does the work; every visit after is instant.
+
+
 ## 0.9.1 — Politeness Engineering
 
 * **The "rejected API key" wasn't.** CurseForge sits behind Cloudflare,

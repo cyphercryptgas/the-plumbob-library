@@ -1,6 +1,6 @@
 [package]
 name = "plumbob-core"
-version = "0.9.1"
+version = "0.10.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
@@ -24,6 +24,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 # what conservative environments (distro Rust 1.75) can parse. Bundled SQLite
 # keeps the database identical on every platform, including Windows CI.
 rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Thumbnail extraction: DBPF payloads are commonly zlib-compressed.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
 [dev-dependencies]
 # Certification oracle: the exact crate ferium/furse use for CurseForge
