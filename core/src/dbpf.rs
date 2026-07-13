@@ -619,6 +619,26 @@ pub fn read_entry_payload(file: &mut File, entry: &EntryMeta) -> Option<Vec<u8>>
     }
 }
 
+/// Up to `max_n` CASP payloads from one package — a part's swatches all
+/// carry the same BodyType, which is exactly what election v3 verifies.
+pub fn read_casp_payloads(path: &Path, max_n: usize) -> Result<Vec<Vec<u8>>, DbpfError> {
+    let index = read_package_index(path)?;
+    let mut file = File::open(path)?;
+    let mut out = Vec::new();
+    for (key, entry) in index.keys.iter().zip(index.entries.iter()) {
+        if key.type_id != crate::casp::CASP_TYPE {
+            continue;
+        }
+        if let Some(payload) = read_entry_payload(&mut file, entry) {
+            out.push(payload);
+            if out.len() >= max_n {
+                break;
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// The first CAS part's decompressed payload, if the package has one.
 /// BodyType reading happens above this layer, where a calibrated scheme
 /// elected across the whole library is available.

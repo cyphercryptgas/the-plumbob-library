@@ -112,7 +112,8 @@ pub fn calibrate(samples: &[&[u8]]) -> Option<Scheme> {
 /// The election plus a one-line verdict for the diagnostics card —
 /// either the winning scheme with its numbers, or the nearest miss.
 pub fn calibrate_verbose(samples: &[&[u8]]) -> (Option<Scheme>, String) {
-    match elect(samples) {
+    let files: Vec<Vec<&[u8]>> = samples.iter().map(|p| vec![*p]).collect();
+    match elect(&files) {
         Elect::Won(s, cov, dis) => (
             Some(s),
             format!(
@@ -123,10 +124,10 @@ pub fn calibrate_verbose(samples: &[&[u8]]) -> (Option<Scheme>, String) {
                 dis
             ),
         ),
-        Elect::Miss(s, cov) => (
+        Elect::Miss(s, cov, why) => (
             None,
             format!(
-                "no scheme elected · best coverage {:.0}% at pre={} off={}",
+                "no scheme elected ({why}) · best coverage {:.0}% at pre={} off={}",
                 cov * 100.0,
                 s.pre_u32s,
                 s.offset
@@ -138,39 +139,71 @@ pub fn calibrate_verbose(samples: &[&[u8]]) -> (Option<Scheme>, String) {
 
 enum Elect {
     Won(Scheme, f32, usize),
-    Miss(Scheme, f32),
+    Miss(Scheme, f32, &'static str),
     TooFew(usize),
 }
 
-fn elect(samples: &[&[u8]]) -> Elect {
-    if samples.len() < 8 {
-        return Elect::TooFew(samples.len());
+/// Values a real CC wardrobe concentrates in: the core garment slots.
+const CORE_SLOTS: std::ops::RangeInclusive<u32> = 1..=8;
+
+fn elect(files: &[Vec<&[u8]>]) -> Elect {
+    if files.len() < 8 {
+        return Elect::TooFew(files.len());
     }
     let mut best: Option<(Scheme, f32, usize)> = None;
-    let mut nearest: Option<(Scheme, f32)> = None;
+    let mut nearest: Option<(Scheme, f32, &'static str)> = None;
     for pre_u32s in 0u8..=2 {
         for offset in (0..=60usize).step_by(2) {
             let scheme = Scheme { pre_u32s, offset };
             let mut counts = std::collections::HashMap::new();
             let mut hits = 0usize;
-            for p in samples {
-                if let Some(v) = body_type_with(p, scheme) {
+            let mut core = 0usize;
+            let mut multi = 0usize;
+            let mut agree = 0usize;
+            for siblings in files {
+                let reads: Vec<Option<u32>> = siblings
+                    .iter()
+                    .map(|p| body_type_with(p, scheme))
+                    .collect();
+                if let Some(Some(v)) = reads.first() {
                     hits += 1;
-                    *counts.entry(v).or_insert(0usize) += 1;
+                    *counts.entry(*v).or_insert(0usize) += 1;
+                    if CORE_SLOTS.contains(v) {
+                        core += 1;
+                    }
+                }
+                if reads.len() >= 2 {
+                    multi += 1;
+                    if reads.iter().all(|r| r.is_some())
+                        && reads.windows(2).all(|w| w[0] == w[1])
+                    {
+                        agree += 1;
+                    }
                 }
             }
-            let coverage = hits as f32 / samples.len() as f32;
-            if nearest.as_ref().map_or(true, |(_, c)| coverage > *c) {
-                nearest = Some((scheme, coverage));
+            let coverage = hits as f32 / files.len() as f32;
+            let note: &'static str = if coverage < 0.9 {
+                "coverage"
+            } else if counts.len() < 3
+                || counts.values().copied().max().unwrap_or(0) * 100 > hits * 85
+            {
+                "diversity"
+            } else if core * 100 < hits * 25 {
+                // A wardrobe without hair, tops, bottoms, or shoes isn't one.
+                "wardrobe prior"
+            } else if multi >= 5 && agree * 100 < multi * 90 {
+                // Swatches of one part share a BodyType; impostors vary.
+                "sibling agreement"
+            } else {
+                ""
+            };
+            if nearest.as_ref().map_or(true, |(_, cvg, _)| coverage > *cvg) {
+                nearest = Some((scheme, coverage, if note.is_empty() { "tie" } else { note }));
             }
-            if coverage < 0.9 {
+            if !note.is_empty() {
                 continue;
             }
             let distinct = counts.len();
-            let top = counts.values().copied().max().unwrap_or(0);
-            if distinct < 3 || top * 100 > hits * 85 {
-                continue;
-            }
             let better = match &best {
                 None => true,
                 Some((b, cov, dis)) => {
@@ -187,8 +220,9 @@ fn elect(samples: &[&[u8]]) -> Elect {
     match best {
         Some((s, cov, dis)) => Elect::Won(s, cov, dis),
         None => {
-            let (s, cov) = nearest.unwrap_or((Scheme { pre_u32s: 0, offset: 0 }, 0.0));
-            Elect::Miss(s, cov)
+            let (s, cov, why) =
+                nearest.unwrap_or((Scheme { pre_u32s: 0, offset: 0 }, 0.0, "coverage"));
+            Elect::Miss(s, cov, why)
         }
     }
 }
@@ -199,15 +233,16 @@ fn elect(samples: &[&[u8]]) -> Elect {
 /// inside each homogeneous cohort; classify each file with its own
 /// version's winner. Cohorts too small to elect stay unlabeled.
 pub fn calibrate_by_version(
-    samples: &[&[u8]],
+    files: &[Vec<&[u8]>],
 ) -> (std::collections::HashMap<u32, Scheme>, String) {
-    let mut cohorts: std::collections::HashMap<u32, Vec<&[u8]>> =
+    let mut cohorts: std::collections::HashMap<u32, Vec<Vec<&[u8]>>> =
         std::collections::HashMap::new();
-    for p in samples {
+    for siblings in files {
+        let Some(p) = siblings.first() else { continue };
         if p.len() >= 4 {
             let v = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
             if (VERSION_MIN..=VERSION_MAX).contains(&v) {
-                cohorts.entry(v).or_default().push(p);
+                cohorts.entry(v).or_default().push(siblings.clone());
             }
         }
     }
@@ -227,8 +262,8 @@ pub fn calibrate_by_version(
                 ));
                 elected.insert(v, s);
             }
-            Elect::Miss(_, cov) => {
-                parts.push(format!("0x{v:02X}→none (best {:.0}%)", cov * 100.0))
+            Elect::Miss(_, cov, why) => {
+                parts.push(format!("0x{v:02X}→none ({why}, best {:.0}%)", cov * 100.0))
             }
             Elect::TooFew(n) => parts.push(format!("0x{v:02X}→too few ({n})")),
         }
@@ -367,6 +402,62 @@ mod tests {
         assert!(calibrate(&refs).is_none(), "all-tops corpus lacks diversity proof");
     }
 
+    /// Today's field bug, encoded: a lower-offset field with small varied
+    /// in-range values (outfitGroup-like, differing per swatch) satisfies
+    /// every v2 gate and wins the lower-offset tiebreak. Sibling agreement
+    /// must reject it and elect the column swatches share.
+    fn casp_with_impostor(name: &str, body_type: u32, file_salt: u32, swatch: u32) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&0x2Eu32.to_le_bytes());
+        v.extend_from_slice(&0x0200u32.to_le_bytes());
+        v.extend_from_slice(&(file_salt % 3).to_le_bytes()); // presetCount
+        v.push(name.len() as u8);
+        v.extend_from_slice(name.as_bytes());
+        v.extend_from_slice(&1.5f32.to_le_bytes()); // off 0..4
+        v.extend_from_slice(&(swatch as u16).to_le_bytes()); // off 4..6
+        let impostor = 1 + (file_salt * 5 + swatch * 7) % 40; // off 6..10
+        v.extend_from_slice(&impostor.to_le_bytes());
+        v.extend_from_slice(&body_type.to_le_bytes()); // off 10..14
+        v.extend_from_slice(&(0x1000 + file_salt).to_le_bytes());
+        v
+    }
+
+    #[test]
+    fn sibling_agreement_defeats_the_impostor_column() {
+        let types = [2u32, 6, 6, 7, 8, 2, 26, 5, 31, 6, 8, 1];
+        let corpus: Vec<Vec<Vec<u8>>> = types
+            .iter()
+            .enumerate()
+            .map(|(i, bt)| {
+                (0..3u32)
+                    .map(|sw| casp_with_impostor(&format!("part{i:02}nm"), *bt, i as u32, sw))
+                    .collect()
+            })
+            .collect();
+        let files: Vec<Vec<&[u8]>> = corpus
+            .iter()
+            .map(|sibs| sibs.iter().map(|v| v.as_slice()).collect())
+            .collect();
+        let (schemes, verdict) = calibrate_by_version(&files);
+        let s = schemes.get(&0x2E).copied().expect("cohort elected");
+        assert_eq!(s.offset, 10, "impostor at off 6 must lose: {verdict}");
+        assert_eq!(body_type_versioned(files[0][0], &schemes), Some(2));
+        assert_eq!(body_type_versioned(files[4][0], &schemes), Some(8));
+    }
+
+    #[test]
+    fn a_wardrobe_without_garments_is_refused() {
+        // Diverse, agreeing, in-range — but flooding 14..=23, where no real
+        // CC library lives. The prior must refuse it.
+        let corpus: Vec<Vec<u8>> = (0..12u32)
+            .map(|i| casp_versioned(0x2E, 1, 0, &format!("odd{i:02}name"), 14 + (i % 10), i))
+            .collect();
+        let files: Vec<Vec<&[u8]>> = corpus.iter().map(|v| vec![v.as_slice()]).collect();
+        let (schemes, verdict) = calibrate_by_version(&files);
+        assert!(schemes.is_empty(), "{verdict}");
+        assert!(verdict.contains("wardrobe prior"), "{verdict}");
+    }
+
     #[test]
     fn version_cohorts_elect_their_own_offsets() {
         let types = [2u32, 6, 6, 7, 8, 2, 26, 5, 31, 6, 8, 1];
@@ -381,7 +472,8 @@ mod tests {
         // The mixed corpus defeats single-scheme election — this is the
         // 68%-coverage failure from the field, reproduced.
         assert!(calibrate(&refs).is_none(), "single scheme must fail on mixed versions");
-        let (schemes, verdict) = calibrate_by_version(&refs);
+        let files: Vec<Vec<&[u8]>> = corpus.iter().map(|v| vec![v.as_slice()]).collect();
+        let (schemes, verdict) = calibrate_by_version(&files);
         assert_eq!(schemes.get(&0x2E), Some(&Scheme { pre_u32s: 1, offset: 10 }));
         assert_eq!(schemes.get(&0x33), Some(&Scheme { pre_u32s: 1, offset: 22 }));
         assert!(verdict.contains("0x2E→pre1 off10"), "{verdict}");

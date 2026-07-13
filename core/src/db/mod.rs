@@ -89,6 +89,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0011_clear_wrong_subcats",
         include_str!("../../migrations/0011_clear_wrong_subcats.sql"),
     ),
+    (
+        "0012_third_wipe",
+        include_str!("../../migrations/0012_third_wipe.sql"),
+    ),
 ];
 
 pub struct Database {

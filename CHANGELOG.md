@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.17.0 — The Impostor & The Third Wipe
+
+* **Teeth in every bucket, diagnosed.** The election crowned an impostor:
+  a real field with small, varied, in-range values that satisfied every
+  gate — coverage, diversity, non-constancy — because those gates
+  described BodyType without uniquely identifying it. The property only
+  BodyType has: a package's CASP entries are swatches of one part, so
+  they all share it, while swatch-varying impostors differ between
+  siblings by definition. Election v3 reads up to three sibling payloads
+  per package and requires ≥90% within-package agreement, plus a
+  wardrobe prior (a real library concentrates in hair, tops, bottoms,
+  shoes — not the exotic teens that flooded "Other"). Both failures are
+  now named regression tests: the lower-offset impostor that v2
+  provably elects, and the garment-less corpus the prior refuses.
+* **Third wipe** of subcategory data (each one cheaper than being
+  wrong), and the probe verdict now says *why* a cohort failed —
+  coverage, diversity, wardrobe prior, or sibling agreement.
+
+
 ## 0.16.0 — Cohort Calibration
 
 * **Your probe line solved it.** Six CASP versions in the library, best
