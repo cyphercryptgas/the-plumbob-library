@@ -9,6 +9,7 @@ import { Onboarding } from "./screens/Onboarding";
 import { Dashboard } from "./screens/Dashboard";
 import { Settings } from "./screens/Settings";
 import { Library } from "./screens/Library";
+import { Creators } from "./screens/Creators";
 import { Duplicates } from "./screens/Duplicates";
 import { Troubleshoot } from "./screens/Troubleshoot";
 import { Profiles } from "./screens/Profiles";
@@ -21,6 +22,7 @@ import { Activity } from "./screens/Activity";
 const TITLES: Record<Route, string> = {
   dashboard: "Dashboard",
   library: "Library",
+  creators: "Creators",
   duplicates: "Duplicate Center",
   conflicts: "Conflicts",
   troubleshoot: "Troubleshoot",
@@ -42,6 +44,8 @@ function Screen(props: {
       return <Dashboard onNavigate={props.onNavigate} />;
     case "settings":
       return <Settings />;
+    case "creators":
+      return <Creators />;
     case "library":
       return (
         <Library

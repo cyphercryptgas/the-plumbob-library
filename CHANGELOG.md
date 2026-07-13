@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.19.0 — The Creators Section
+
+* **Your library, by byline.** A new Creators screen reads authorship
+  from the two dominant CC conventions: bracketed leads
+  (`[SIMCREDIBLE]`, `[NORTHERN SIBERIA WINDS]`) always credit;
+  underscore prefixes (`KUTTOE_`, `VIBRANTPIXELS_`) credit when they
+  carry a creator signature or earn frequency promotion — three files
+  sharing a lowercase prefix make it a creator, while a generic-word
+  stoplist keeps `poses_` and `hair_` out. Precision-first and
+  evidence-adjustable, fixture-tested against the field library's own
+  filenames. Attribution runs with every Scan; files it can't credit
+  are marked examined rather than retried forever.
+* The roster shows each creator with their file count and a ✦ badge for
+  works matched on CurseForge — the identity join, surfaced. Click a
+  creator for their works as a thumbnail grid with the Library's
+  expand actions (Disable/Enable, Reveal) and numbered paging.
+
+
 ## 0.18.0 — The Reference
 
 * **BodyType has no fixed offset — a variable flag list precedes it.**

@@ -2,7 +2,7 @@
 
 Statuses: **Complete** · **Partial** · **Planned** · **Unscheduled**
 
-Updated: v0.18.0 — every planned surface shipped. This file is refreshed at
+Updated: v0.19.0 — every planned surface shipped. This file is refreshed at
 the end of each release; `CHANGELOG.md` carries the narrative.
 
 ## Safety core
@@ -26,7 +26,8 @@ the end of each release; `CHANGELOG.md` carries the narrative.
 | Enable/disable engine (`.package ⇄ .package.off`, scanner-aware both ways) | Complete |
 | Profiles: identity, live-tracked mod sets, previewed switching | Complete |
 | Patch Center: CurseForge Update Radar (probe-verdicted; name tier, cached, paced) | Complete |
-| Library gallery: image-first grid (DDS+PNG+JPEG), selectable/expandable tiles, prewarm | Complete |
+| Library gallery: image-first grid (DDS/DST+PNG+JPEG), selectable/expandable tiles, prewarm | Complete |
+| CAS subcategories via the CASP reference parser; Creators section with CF join | Complete |
 | Cross-guards: scan ⇄ hunt ⇄ toggle ⇄ switch mutual exclusion | Complete |
 
 ## Screens (all in the shipped chrome)

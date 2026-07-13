@@ -97,6 +97,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0013_reference_wipe",
         include_str!("../../migrations/0013_reference_wipe.sql"),
     ),
+    (
+        "0014_creators",
+        include_str!("../../migrations/0014_creators.sql"),
+    ),
 ];
 
 pub struct Database {

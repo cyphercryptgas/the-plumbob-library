@@ -60,6 +60,7 @@ export const getLibraryCounts = () =>
 export const listFiles = (options?: {
   search?: string;
   filter?: LibraryFilter;
+  creator?: string;
   sort?: string;
   limit?: number;
   offset?: number;
@@ -67,6 +68,7 @@ export const listFiles = (options?: {
   call<FileRow[]>("list_files", {
     search: options?.search ?? null,
     filter: options?.filter ?? null,
+    creator: options?.creator ?? null,
     sort: options?.sort ?? null,
     limit: options?.limit ?? null,
     offset: options?.offset ?? null,
@@ -74,10 +76,12 @@ export const listFiles = (options?: {
 export const countFiles = (options?: {
   search?: string;
   filter?: LibraryFilter;
+  creator?: string;
 }) =>
   call<number>("count_files", {
     search: options?.search ?? null,
     filter: options?.filter ?? null,
+    creator: options?.creator ?? null,
   });
 export const listDuplicateGroups = () =>
   call<DuplicateGroupView[]>("list_duplicate_groups");
@@ -214,3 +218,13 @@ export interface CensusReport {
 
 export const thumbnailCensus = () =>
   call<CensusReport>("thumbnail_census");
+
+export interface CreatorRow {
+  key: string;
+  display: string;
+  files: number;
+  onCurse: number;
+}
+
+export const creatorsOverview = () =>
+  call<CreatorRow[]>("creators_overview");

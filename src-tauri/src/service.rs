@@ -298,6 +298,7 @@ pub fn run_scan_pipeline(
     // Subcategory pass: reads CAS payloads, so it runs after the lock-held
     // classification and never inside it.
     let _ = classify_cas_subtypes(dbm);
+    let _ = classify_creators(dbm);
 
     let outcome = ScanOutcome {
         scan_id: summary.scan_id,
@@ -1743,6 +1744,46 @@ pub fn classify_cas_subtypes(dbm: &Mutex<Database>) -> UiResult<usize> {
                 db::files::set_cas_subcategory(guard.conn(), *id, sub).map_err(err_str)?;
                 done += 1;
             }
+        }
+    }
+    Ok(done)
+}
+
+/// Read creator identity from every current filename: strong conventions
+/// credit alone, lowercase prefixes need three files (frequency
+/// promotion computed across the whole library each scan). Writes only
+/// rows still pending; '' marks examined-and-uncredited.
+pub fn classify_creators(dbm: &Mutex<Database>) -> UiResult<usize> {
+    let worklist = {
+        let guard = lock_db(dbm)?;
+        db::files::creator_worklist(guard.conn()).map_err(err_str)?
+    };
+    if worklist.iter().all(|(_, _, pending)| !pending) {
+        return Ok(0);
+    }
+    let candidates: Vec<(i64, Option<plumbob_core::creators::Candidate>)> = worklist
+        .iter()
+        .map(|(id, name, _)| (*id, plumbob_core::creators::candidate(name)))
+        .collect();
+    let resolved = plumbob_core::creators::resolve(&candidates);
+    let pending: std::collections::HashSet<i64> = worklist
+        .iter()
+        .filter(|(_, _, p)| *p)
+        .map(|(id, _, _)| *id)
+        .collect();
+    let mut done = 0usize;
+    for chunk in resolved.chunks(100) {
+        let guard = lock_db(dbm)?;
+        for (id, credit) in chunk {
+            if !pending.contains(id) {
+                continue;
+            }
+            let (key, display) = credit
+                .as_ref()
+                .map(|(k, d)| (k.as_str(), d.as_str()))
+                .unwrap_or(("", ""));
+            db::files::set_creator(guard.conn(), *id, key, display).map_err(err_str)?;
+            done += 1;
         }
     }
     Ok(done)

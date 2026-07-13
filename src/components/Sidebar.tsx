@@ -5,6 +5,7 @@ import { PRODUCT_NAME } from "../lib/product";
 export type Route =
   | "dashboard"
   | "library"
+  | "creators"
   | "duplicates"
   | "conflicts"
   | "troubleshoot"
@@ -18,6 +19,7 @@ export type Route =
 const NAV: { route: Route; label: string; icon: IconName }[] = [
   { route: "dashboard", label: "Dashboard", icon: "dashboard" },
   { route: "library", label: "Library", icon: "library" },
+  { route: "creators", label: "Creators", icon: "profiles" },
   { route: "duplicates", label: "Duplicates", icon: "duplicates" },
   { route: "conflicts", label: "Conflicts", icon: "conflicts" },
   { route: "troubleshoot", label: "Troubleshoot", icon: "target" },

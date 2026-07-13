@@ -69,6 +69,8 @@ export interface FileRow {
   enabled: boolean;
   category: string | null;
   casSubcategory: string | null;
+  creator: string | null;
+  creatorDisplay: string | null;
 }
 
 export interface DuplicateMemberView {

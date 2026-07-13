@@ -181,6 +181,7 @@ pub fn list_files(
     state: State<'_, AppState>,
     search: Option<String>,
     filter: Option<String>,
+    creator: Option<String>,
     sort: Option<String>,
     limit: Option<i64>,
     offset: Option<i64>,
@@ -190,6 +191,7 @@ pub fn list_files(
         guard.conn(),
         search.as_deref(),
         filter.as_deref(),
+        creator.as_deref(),
         sort.as_deref(),
         limit.unwrap_or(200).clamp(1, 1000),
         offset.unwrap_or(0).max(0),
@@ -202,9 +204,10 @@ pub fn count_files(
     state: State<'_, AppState>,
     search: Option<String>,
     filter: Option<String>,
+    creator: Option<String>,
 ) -> UiResult<i64> {
     let guard = service::lock_db(&state.db)?;
-    db::files::count_files(guard.conn(), search.as_deref(), filter.as_deref())
+    db::files::count_files(guard.conn(), search.as_deref(), filter.as_deref(), creator.as_deref())
         .map_err(service::err_str)
 }
 
@@ -632,4 +635,12 @@ pub async fn thumbnail_census(
     })
     .await
     .map_err(|e| format!("The census failed unexpectedly: {e}"))?
+}
+
+#[tauri::command]
+pub fn creators_overview(
+    state: State<'_, AppState>,
+) -> UiResult<Vec<db::files::CreatorRow>> {
+    let guard = service::lock_db(&state.db)?;
+    db::files::creators_overview(guard.conn()).map_err(service::err_str)
 }

@@ -13,6 +13,7 @@
 
 use super::{now_rfc3339, opt_rfc3339, rel_to_db_string, DbError};
 use crate::scan::{FileKind, ScanReport};
+use serde::Serialize;
 use rusqlite::{params, Connection};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -346,11 +347,13 @@ pub struct FileRow {
     pub enabled: bool,
     pub category: Option<String>,
     pub cas_subcategory: Option<String>,
+    pub creator: Option<String>,
+    pub creator_display: Option<String>,
 }
 
 const FILE_ROW_COLUMNS: &str = "id, relative_path, absolute_path, current_filename, file_type,
     size_bytes, sha256, status, missing, zero_byte, deep_script, depth, modified_at_fs,
-    mod_id, parse_status, enabled, category, cas_subcategory";
+    mod_id, parse_status, enabled, category, cas_subcategory, creator, creator_display";
 
 fn map_file_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<FileRow> {
     Ok(FileRow {
@@ -372,6 +375,8 @@ fn map_file_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<FileRow> {
         enabled: r.get::<_, i64>(15)? != 0,
         category: r.get(16)?,
         cas_subcategory: r.get(17)?,
+        creator: r.get(18)?,
+        creator_display: r.get(19)?,
     })
 }
 
@@ -427,6 +432,7 @@ pub fn list_files(
     conn: &Connection,
     search: Option<&str>,
     filter: Option<&str>,
+    creator: Option<&str>,
     sort: Option<&str>,
     limit: i64,
     offset: i64,
@@ -447,12 +453,13 @@ pub fn list_files(
     let sql = format!(
         "SELECT {FILE_ROW_COLUMNS}
          FROM files
-         WHERE (?1 IS NULL OR relative_path LIKE '%' || ?1 || '%') AND {clause}
+         WHERE (?1 IS NULL OR relative_path LIKE '%' || ?1 || '%')
+           AND (?2 IS NULL OR creator = ?2) AND {clause}
          ORDER BY {order}
-         LIMIT ?2 OFFSET ?3"
+         LIMIT ?3 OFFSET ?4"
     );
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(params![search, limit, offset], map_file_row)?;
+    let rows = stmt.query_map(params![search, creator, limit, offset], map_file_row)?;
     let mut out = Vec::new();
     for row in rows {
         out.push(row?);
@@ -465,13 +472,15 @@ pub fn count_files(
     conn: &Connection,
     search: Option<&str>,
     filter: Option<&str>,
+    creator: Option<&str>,
 ) -> Result<i64, DbError> {
     let clause = filter_clause(filter)?;
     let sql = format!(
         "SELECT COUNT(*) FROM files
-         WHERE (?1 IS NULL OR relative_path LIKE '%' || ?1 || '%') AND {clause}"
+         WHERE (?1 IS NULL OR relative_path LIKE '%' || ?1 || '%')
+           AND (?2 IS NULL OR creator = ?2) AND {clause}"
     );
-    Ok(conn.query_row(&sql, params![search], |r| r.get(0))?)
+    Ok(conn.query_row(&sql, params![search, creator], |r| r.get(0))?)
 }
 
 /// Fetch specific rows by id (e.g. a quarantine selection). Order follows
@@ -732,12 +741,58 @@ mod tests {
             mk_file("BuildBuy/sofa.package", 10, 2, FileKind::Package),
         ]);
         reconcile_scan(db.conn_mut(), &r, "initial", &[]).unwrap();
-        let hair = list_files(db.conn(), Some("hair"), None, None, 50, 0).unwrap();
+        let hair = list_files(db.conn(), Some("hair"), None, None, None, 50, 0).unwrap();
         assert_eq!(hair.len(), 2);
-        let page = list_files(db.conn(), None, None, None, 2, 0).unwrap();
+        let page = list_files(db.conn(), None, None, None, None, 2, 0).unwrap();
         assert_eq!(page.len(), 2);
-        let rest = list_files(db.conn(), None, None, None, 2, 2).unwrap();
+        let rest = list_files(db.conn(), None, None, None, None, 2, 2).unwrap();
         assert_eq!(rest.len(), 1);
+    }
+
+    #[test]
+    fn creators_overview_counts_files_and_curse_matches() {
+        let mut db = Database::open_in_memory().unwrap();
+        let r = report(vec![
+            mk_file("KUTTOE_a.package", 10, 0, FileKind::Package),
+            mk_file("KUTTOE_b.package", 10, 1, FileKind::Package),
+            mk_file("loose.package", 10, 2, FileKind::Package),
+        ]);
+        reconcile_scan(db.conn_mut(), &r, "initial", &[]).unwrap();
+        let ids: Vec<i64> = list_files(db.conn(), None, None, None, None, 50, 0)
+            .unwrap()
+            .into_iter()
+            .map(|f| f.id)
+            .collect();
+        set_creator(db.conn(), ids[0], "kuttoe", "KUTTOE").unwrap();
+        set_creator(db.conn(), ids[1], "kuttoe", "KUTTOE").unwrap();
+        set_creator(db.conn(), ids[2], "", "").unwrap();
+        crate::db::curse::replace_matches(
+            db.conn_mut(),
+            &[crate::db::curse::MatchRecord {
+                file_id: ids[0],
+                curse_mod_id: 7,
+                curse_file_id: None,
+                mod_name: "Kuttoe Traits".into(),
+                website_url: None,
+                matched_file_name: None,
+                matched_file_date: None,
+                latest_file_id: 1,
+                latest_file_name: "x".into(),
+                latest_file_date: "2026-01-01T00:00:00Z".into(),
+                update_available: false,
+                match_kind: "name",
+                confidence: Some(0.9),
+            }],
+        )
+        .unwrap();
+        let overview = creators_overview(db.conn()).unwrap();
+        assert_eq!(overview.len(), 1, "uncredited rows excluded");
+        assert_eq!(overview[0].key, "kuttoe");
+        assert_eq!(overview[0].files, 2);
+        assert_eq!(overview[0].on_curse, 1);
+        let only = list_files(db.conn(), None, None, Some("kuttoe"), None, 50, 0).unwrap();
+        assert_eq!(only.len(), 2);
+        assert_eq!(count_files(db.conn(), None, None, Some("kuttoe")).unwrap(), 2);
     }
 
     #[test]
@@ -755,20 +810,20 @@ mod tests {
         ]);
         reconcile_scan(db.conn_mut(), &r, "initial", &[]).unwrap();
 
-        let zeroes = list_files(db.conn(), None, Some("zero-byte"), None, 50, 0).unwrap();
+        let zeroes = list_files(db.conn(), None, Some("zero-byte"), None, None, 50, 0).unwrap();
         assert_eq!(zeroes.len(), 1);
         assert_eq!(zeroes[0].relative_path, "empty.package");
-        assert_eq!(count_files(db.conn(), None, Some("zero-byte")).unwrap(), 1);
+        assert_eq!(count_files(db.conn(), None, Some("zero-byte"), None).unwrap(), 1);
 
         assert_eq!(
-            list_files(db.conn(), None, Some("deep-scripts"), None, 50, 0)
+            list_files(db.conn(), None, Some("deep-scripts"), None, None, 50, 0)
                 .unwrap()
                 .len(),
             1
         );
-        assert_eq!(count_files(db.conn(), None, Some("archives")).unwrap(), 1);
-        assert_eq!(count_files(db.conn(), None, Some("packages")).unwrap(), 2);
-        assert!(list_files(db.conn(), None, Some("nonsense"), None, 50, 0).is_err());
+        assert_eq!(count_files(db.conn(), None, Some("archives"), None).unwrap(), 1);
+        assert_eq!(count_files(db.conn(), None, Some("packages"), None).unwrap(), 2);
+        assert!(list_files(db.conn(), None, Some("nonsense"), None, None, 50, 0).is_err());
     }
 
     #[test]
@@ -1072,6 +1127,67 @@ pub fn set_cas_subcategory(conn: &Connection, id: i64, sub: &str) -> Result<(), 
     conn.execute(
         "UPDATE files SET cas_subcategory = ?2 WHERE id = ?1",
         params![id, sub],
+    )?;
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatorRow {
+    pub key: String,
+    pub display: String,
+    pub files: i64,
+    /// Files by this creator matched on CurseForge (name radar or exact) —
+    /// the fingerprint/identity join, surfaced.
+    pub on_curse: i64,
+}
+
+pub fn creators_overview(conn: &Connection) -> Result<Vec<CreatorRow>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT f.creator, COALESCE(MAX(f.creator_display), f.creator),
+                COUNT(*), COUNT(m.file_id)
+         FROM files f
+         LEFT JOIN curse_matches m ON m.file_id = f.id
+         WHERE f.creator IS NOT NULL AND f.creator <> ''
+           AND f.missing = 0 AND f.status = 'current'
+         GROUP BY f.creator
+         ORDER BY COUNT(*) DESC, f.creator",
+    )?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(CreatorRow {
+                key: r.get(0)?,
+                display: r.get(1)?,
+                files: r.get(2)?,
+                on_curse: r.get(3)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+/// Every current file's name, with whether creator attribution is still
+/// pending — the whole library feeds frequency promotion each scan.
+pub fn creator_worklist(conn: &Connection) -> Result<Vec<(i64, String, bool)>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, current_filename, creator IS NULL FROM files
+         WHERE missing = 0 AND status = 'current'",
+    )?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+pub fn set_creator(
+    conn: &Connection,
+    id: i64,
+    key: &str,
+    display: &str,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE files SET creator = ?2, creator_display = ?3 WHERE id = ?1",
+        params![id, key, display],
     )?;
     Ok(())
 }
