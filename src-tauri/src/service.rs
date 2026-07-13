@@ -2519,7 +2519,7 @@ pub struct TitleOutcome {
 }
 
 fn build_title_plan(
-    conn: &rusqlite::Connection,
+    conn: &plumbob_core::db::Connection,
     ids: Option<&[i64]>,
     today_only: bool,
 ) -> Result<TitlePlan, String> {

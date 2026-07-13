@@ -21,7 +21,7 @@ pub mod profiles;
 pub mod settings;
 pub mod troubleshoot;
 
-use rusqlite::Connection;
+pub use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 

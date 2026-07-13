@@ -12,6 +12,14 @@ destructive step journaled, snapshotted, and reversible. The history
 below tells the whole story, defect confessions included.
 
 
+## 0.28.1 — The Shell Speaks Only Core
+
+* Installer fix: the Title Tool's plan builder named rusqlite types
+  directly in the shell, which has never carried that dependency — the
+  database belongs to core. The connection type is re-exported through
+  core, the journal trait is properly in scope, and the shell compiles
+  again. (The Node 20 deprecation notice in Actions remains cosmetic.)
+
 ## 0.28.0 — The Title Tool
 
 * **Files can be named to convention now: `[creator]_[modtype]_[modname]`,
