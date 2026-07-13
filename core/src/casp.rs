@@ -112,8 +112,39 @@ pub fn calibrate(samples: &[&[u8]]) -> Option<Scheme> {
 /// The election plus a one-line verdict for the diagnostics card —
 /// either the winning scheme with its numbers, or the nearest miss.
 pub fn calibrate_verbose(samples: &[&[u8]]) -> (Option<Scheme>, String) {
+    match elect(samples) {
+        Elect::Won(s, cov, dis) => (
+            Some(s),
+            format!(
+                "elected pre={} off={} · coverage {:.0}% · {} distinct types",
+                s.pre_u32s,
+                s.offset,
+                cov * 100.0,
+                dis
+            ),
+        ),
+        Elect::Miss(s, cov) => (
+            None,
+            format!(
+                "no scheme elected · best coverage {:.0}% at pre={} off={}",
+                cov * 100.0,
+                s.pre_u32s,
+                s.offset
+            ),
+        ),
+        Elect::TooFew(n) => (None, format!("only {n} readable samples")),
+    }
+}
+
+enum Elect {
+    Won(Scheme, f32, usize),
+    Miss(Scheme, f32),
+    TooFew(usize),
+}
+
+fn elect(samples: &[&[u8]]) -> Elect {
     if samples.len() < 8 {
-        return (None, format!("only {} readable samples", samples.len()));
+        return Elect::TooFew(samples.len());
     }
     let mut best: Option<(Scheme, f32, usize)> = None;
     let mut nearest: Option<(Scheme, f32)> = None;
@@ -132,7 +163,7 @@ pub fn calibrate_verbose(samples: &[&[u8]]) -> (Option<Scheme>, String) {
             if nearest.as_ref().map_or(true, |(_, c)| coverage > *c) {
                 nearest = Some((scheme, coverage));
             }
-            if coverage < 0.8 {
+            if coverage < 0.9 {
                 continue;
             }
             let distinct = counts.len();
@@ -154,29 +185,72 @@ pub fn calibrate_verbose(samples: &[&[u8]]) -> (Option<Scheme>, String) {
         }
     }
     match best {
-        Some((s, cov, dis)) => (
-            Some(s),
-            format!(
-                "elected pre={} off={} · coverage {:.0}% · {} distinct types",
-                s.pre_u32s,
-                s.offset,
-                cov * 100.0,
-                dis
-            ),
-        ),
+        Some((s, cov, dis)) => Elect::Won(s, cov, dis),
         None => {
             let (s, cov) = nearest.unwrap_or((Scheme { pre_u32s: 0, offset: 0 }, 0.0));
-            (
-                None,
-                format!(
-                    "no scheme elected · best coverage {:.0}% at pre={} off={}",
-                    cov * 100.0,
-                    s.pre_u32s,
-                    s.offset
-                ),
-            )
+            Elect::Miss(s, cov)
         }
     }
+}
+
+/// CASP field offsets shift across versions, so a mixed library defeats
+/// any single scheme (a field inserted in a newer version pushes
+/// BodyType further out). Partition by version and elect independently
+/// inside each homogeneous cohort; classify each file with its own
+/// version's winner. Cohorts too small to elect stay unlabeled.
+pub fn calibrate_by_version(
+    samples: &[&[u8]],
+) -> (std::collections::HashMap<u32, Scheme>, String) {
+    let mut cohorts: std::collections::HashMap<u32, Vec<&[u8]>> =
+        std::collections::HashMap::new();
+    for p in samples {
+        if p.len() >= 4 {
+            let v = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
+            if (VERSION_MIN..=VERSION_MAX).contains(&v) {
+                cohorts.entry(v).or_default().push(p);
+            }
+        }
+    }
+    let mut order: Vec<u32> = cohorts.keys().copied().collect();
+    order.sort_by_key(|v| std::cmp::Reverse(cohorts[v].len()));
+    let mut elected = std::collections::HashMap::new();
+    let mut parts = Vec::new();
+    for v in order {
+        let group = &cohorts[&v];
+        match elect(group) {
+            Elect::Won(s, cov, _) => {
+                parts.push(format!(
+                    "0x{v:02X}→pre{} off{} ({:.0}%)",
+                    s.pre_u32s,
+                    s.offset,
+                    cov * 100.0
+                ));
+                elected.insert(v, s);
+            }
+            Elect::Miss(_, cov) => {
+                parts.push(format!("0x{v:02X}→none (best {:.0}%)", cov * 100.0))
+            }
+            Elect::TooFew(n) => parts.push(format!("0x{v:02X}→too few ({n})")),
+        }
+    }
+    let verdict = if parts.is_empty() {
+        "no readable CASP payloads".to_string()
+    } else {
+        parts.join(" · ")
+    };
+    (elected, verdict)
+}
+
+/// Read a payload's BodyType using its own version's elected scheme.
+pub fn body_type_versioned(
+    payload: &[u8],
+    schemes: &std::collections::HashMap<u32, Scheme>,
+) -> Option<u32> {
+    if payload.len() < 4 {
+        return None;
+    }
+    let v = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
+    body_type_with(payload, *schemes.get(&v)?)
 }
 
 /// Map a BodyType to the subcategory chips. Buckets are deliberately
@@ -199,6 +273,34 @@ pub fn subcategory_for(body_type: u32) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn casp_versioned(
+        version: u32,
+        pre_u32s: u8,
+        pad_before_body: usize,
+        name: &str,
+        body_type: u32,
+        salt: u32,
+    ) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&version.to_le_bytes());
+        v.extend_from_slice(&0x0200u32.to_le_bytes());
+        for k in 0..pre_u32s {
+            v.extend_from_slice(&(salt % 3 + u32::from(k)).to_le_bytes());
+        }
+        assert!(name.len() < 0x80);
+        v.push(name.len() as u8);
+        v.extend_from_slice(name.as_bytes());
+        v.extend_from_slice(&1.5f32.to_le_bytes());
+        v.extend_from_slice(&(salt as u16).to_le_bytes());
+        v.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+        for b in 0..pad_before_body {
+            v.push(0xC0 | (b as u8 & 0x0F)); // version-inserted fields
+        }
+        v.extend_from_slice(&body_type.to_le_bytes());
+        v.extend_from_slice(&(0x1000 + salt).to_le_bytes());
+        v
+    }
 
     fn casp_bytes(pre_u32s: u8, name: &str, body_type: u32, salt: u32) -> Vec<u8> {
         let mut v = Vec::new();
@@ -263,6 +365,28 @@ mod tests {
         let flat: Vec<Vec<u8>> = (0..12).map(|i| casp_bytes(0, "x", 6, i)).collect();
         let refs: Vec<&[u8]> = flat.iter().map(|v| v.as_slice()).collect();
         assert!(calibrate(&refs).is_none(), "all-tops corpus lacks diversity proof");
+    }
+
+    #[test]
+    fn version_cohorts_elect_their_own_offsets() {
+        let types = [2u32, 6, 6, 7, 8, 2, 26, 5, 31, 6, 8, 1];
+        let mut corpus: Vec<Vec<u8>> = Vec::new();
+        for (i, bt) in types.iter().enumerate() {
+            corpus.push(casp_versioned(0x2E, 1, 0, &format!("old{i:02}name"), *bt, i as u32));
+        }
+        for (i, bt) in types.iter().enumerate() {
+            corpus.push(casp_versioned(0x33, 1, 12, &format!("new{i:02}name"), *bt, i as u32));
+        }
+        let refs: Vec<&[u8]> = corpus.iter().map(|v| v.as_slice()).collect();
+        // The mixed corpus defeats single-scheme election — this is the
+        // 68%-coverage failure from the field, reproduced.
+        assert!(calibrate(&refs).is_none(), "single scheme must fail on mixed versions");
+        let (schemes, verdict) = calibrate_by_version(&refs);
+        assert_eq!(schemes.get(&0x2E), Some(&Scheme { pre_u32s: 1, offset: 10 }));
+        assert_eq!(schemes.get(&0x33), Some(&Scheme { pre_u32s: 1, offset: 22 }));
+        assert!(verdict.contains("0x2E→pre1 off10"), "{verdict}");
+        assert_eq!(body_type_versioned(&corpus[0], &schemes), Some(2));
+        assert_eq!(body_type_versioned(&corpus[16], &schemes), Some(8));
     }
 
     #[test]

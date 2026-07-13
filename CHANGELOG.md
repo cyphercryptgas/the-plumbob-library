@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.16.0 — Cohort Calibration
+
+* **Your probe line solved it.** Six CASP versions in the library, best
+  single scheme stuck at 68% — the signature of BodyType living at
+  *different offsets in different versions* as fields were inserted over
+  the years. Calibration now partitions payloads by version and elects a
+  scheme inside each homogeneous cohort, then classifies every part with
+  its own version's winner. The mixed-version failure from the field is
+  reproduced as a regression test; the probe line now reports each
+  cohort's verdict individually.
+* **The thumbnail engine is complete.** DST delivered: 255 new images,
+  "without art" halved to 244 — and the census shows what remains is
+  overwhelmingly tuning without any art to extract (SimData and String
+  Tables), plus a handful of texture-only CAS packages wearing their
+  emblems honestly. No dominant undecoded type remains; new decoders
+  wait for census evidence, as always.
+
+
 ## 0.15.0 — The Table Delivers
 
 * **Build/Buy decodes: DST.** The census named it — 0x00B2D882 present

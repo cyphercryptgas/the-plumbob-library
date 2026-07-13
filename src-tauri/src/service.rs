@@ -1675,7 +1675,7 @@ pub fn thumbnail_census(
     let verdict = if cas.is_empty() {
         "all CAS parts classified".to_string()
     } else {
-        plumbob_core::casp::calibrate_verbose(&refs).1
+        plumbob_core::casp::calibrate_by_version(&refs).1
     };
     Ok(CensusReport {
         rows,
@@ -1706,14 +1706,15 @@ pub fn classify_cas_subtypes(dbm: &Mutex<Database>) -> UiResult<usize> {
         .take(400)
         .map(|(_, p)| p.as_slice())
         .collect();
-    let Some(scheme) = plumbob_core::casp::calibrate(&sample) else {
+    let (schemes, _) = plumbob_core::casp::calibrate_by_version(&sample);
+    if schemes.is_empty() {
         return Ok(0);
-    };
+    }
     let mut done = 0usize;
     for chunk in payloads.chunks(50) {
         let guard = lock_db(dbm)?;
         for (id, payload) in chunk {
-            if let Some(bt) = plumbob_core::casp::body_type_with(payload, scheme) {
+            if let Some(bt) = plumbob_core::casp::body_type_versioned(payload, &schemes) {
                 let sub = plumbob_core::casp::subcategory_for(bt);
                 db::files::set_cas_subcategory(guard.conn(), *id, sub).map_err(err_str)?;
                 done += 1;
