@@ -535,6 +535,23 @@ mod tests {
     }
 
     #[test]
+    fn the_type_census_counts_files_not_rows() {
+        let db = Database::open_in_memory().unwrap();
+        let a = seed_categorized(&db, "a.package", "package", true);
+        let b = seed_categorized(&db, "b.package", "package", true);
+        let c = seed_categorized(&db, "c.package", "package", true);
+        add_resource(&db, a, 0x0111_1111);
+        add_resource(&db, a, 0x0111_1111); // duplicate row, same file
+        add_resource(&db, b, 0x0111_1111);
+        add_resource(&db, b, 0x0222_2222);
+        add_resource(&db, c, 0x0333_3333); // outside the id set
+        let census = resource_type_census(db.conn(), &[a, b]).unwrap();
+        assert_eq!(census[0], (0x0111_1111, 2), "two files, not three rows");
+        assert_eq!(census[1], (0x0222_2222, 1));
+        assert!(census.iter().all(|(t, _)| *t != 0x0333_3333));
+    }
+
+    #[test]
     fn categories_follow_the_resource_census_with_priority() {
         let db = Database::open_in_memory().unwrap();
         let cas = seed_categorized(&db, "hair.package", "package", true);
@@ -883,4 +900,35 @@ pub fn classify_categories(conn: &Connection) -> Result<usize, DbError> {
          END"
     );
     Ok(conn.execute(&sql, [])?)
+}
+
+/// How many of the given files carry each resource type — the ground-truth
+/// instrument for expanding thumbnail decoding without guessing constants.
+pub fn resource_type_census(
+    conn: &Connection,
+    file_ids: &[i64],
+) -> Result<Vec<(u32, i64)>, DbError> {
+    conn.execute_batch(
+        "CREATE TEMP TABLE IF NOT EXISTS census_ids (id INTEGER PRIMARY KEY);
+         DELETE FROM census_ids;",
+    )?;
+    {
+        let mut ins = conn.prepare("INSERT OR IGNORE INTO census_ids (id) VALUES (?1)")?;
+        for id in file_ids {
+            ins.execute([id])?;
+        }
+    }
+    let mut stmt = conn.prepare(
+        "SELECT r.type_id, COUNT(DISTINCT r.file_id) AS files
+         FROM package_resources r
+         JOIN census_ids c ON c.id = r.file_id
+         GROUP BY r.type_id
+         ORDER BY files DESC, r.type_id
+         LIMIT 14",
+    )?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, i64>(0)? as u32, r.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    conn.execute("DELETE FROM census_ids", [])?;
+    Ok(rows)
 }

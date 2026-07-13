@@ -620,3 +620,16 @@ pub async fn prepare_thumbnails(
     .await
     .map_err(|e| format!("The thumbnail prewarm failed unexpectedly: {e}"))?
 }
+
+#[tauri::command]
+pub async fn thumbnail_census(
+    state: State<'_, AppState>,
+) -> UiResult<Vec<service::CensusRow>> {
+    let dbm = state.db.clone();
+    let data_dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        service::thumbnail_census(&dbm, &data_dir)
+    })
+    .await
+    .map_err(|e| format!("The census failed unexpectedly: {e}"))?
+}

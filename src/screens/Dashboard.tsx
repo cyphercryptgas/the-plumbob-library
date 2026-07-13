@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { getThumbnails } from "../lib/commands";
 import {
   listBackups,
   listConflicts,
@@ -68,6 +70,7 @@ const HERO_C_POINTS: [number, number][] = [[108,84], [204,158], [95,20], [70,118
 const HERO_C_LINES: [number, number, number, number][] = [[108,84,134,78], [108,84,116,46], [204,158,251,167], [204,158,287,160], [95,20,116,46], [95,20,29,18], [70,118,108,84], [70,118,135,107], [116,46,108,84], [116,46,95,20], [135,107,134,78], [135,107,108,84], [167,62,134,78], [167,62,116,46], [227,88,167,62], [227,88,204,158], [287,160,251,167], [287,160,204,158], [134,78,135,107], [134,78,108,84], [29,18,95,20], [29,18,116,46], [251,167,287,160], [251,167,204,158]];
 
 type Finding = {
+  fileId?: number;
   key: string;
   icon: IconName;
   title: string;
@@ -195,6 +198,32 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
   }
 
   // Recent findings: real conflicts and duplicates, worth-a-look first.
+  const [thumbs, setThumbs] = useState<Record<number, string>>({});
+  useEffect(() => {
+    const wanted = [
+      ...conflictGroups
+        .filter((g) => !g.likelyIntentional)
+        .slice(0, 2)
+        .map((g) => g.members[g.members.length - 1]?.fileId),
+      ...dupGroups.slice(0, 4).map((g) => g.members[0]?.fileId),
+    ].filter((v): v is number => typeof v === "number");
+    if (wanted.length === 0) return;
+    let alive = true;
+    getThumbnails(wanted)
+      .then((got) => {
+        if (!alive) return;
+        setThumbs((prev) => {
+          const next = { ...prev };
+          for (const t of got) if (t.path) next[t.fileId] = convertFileSrc(t.path);
+          return next;
+        });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [conflictGroups, dupGroups]);
+
   const findings: Finding[] = [];
   for (const g of conflictGroups.filter((g) => !g.likelyIntentional)) {
     if (findings.length >= 2) break;
@@ -202,6 +231,7 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
     const other = g.members[0];
     findings.push({
       key: `c-${winner.fileId}`,
+      fileId: winner.fileId,
       icon: "conflicts",
       title: fileName(winner.relativePath),
       meta: `Shares ${plural(g.sharedKeyCount, "resource")} with ${fileName(other.relativePath)} · loads last · presumptive winner`,
@@ -216,6 +246,7 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
     const name = g.members[0] ? fileName(g.members[0].relativePath) : `Group #${g.id}`;
     findings.push({
       key: `d-${g.id}`,
+      fileId: g.members[0]?.fileId,
       icon: "duplicates",
       title: name,
       meta: `${plural(g.members.length, "identical copy", "identical copies")} · ${formatBytes(g.reclaimableBytes)} reclaimable`,
@@ -344,9 +375,17 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
                     onClick={() => props.onNavigate(f.route)}
                     className="flex w-full items-center gap-3 border-b border-gold/25 px-2 py-3 text-left transition-all last:border-0 hover:rounded-control hover:bg-gold/10 hover:shadow-[0_0_0_1.4px_rgba(210,170,92,0.7),0_0_16px_rgba(210,170,92,0.35)]"
                   >
-                    <span className="icon-chip flex h-12 w-12 shrink-0 items-center justify-center rounded-xl">
-                      <Icon name={f.icon} size={19} />
-                    </span>
+                    {f.fileId && thumbs[f.fileId] ? (
+                      <img
+                        src={thumbs[f.fileId]}
+                        alt=""
+                        className="h-12 w-12 shrink-0 rounded-xl border border-gold/40 object-cover"
+                      />
+                    ) : (
+                      <span className="icon-chip flex h-12 w-12 shrink-0 items-center justify-center rounded-xl">
+                        <Icon name={f.icon} size={19} />
+                      </span>
+                    )}
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium text-ink">
                         {f.title}

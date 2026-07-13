@@ -63,6 +63,7 @@ fn main() {
             commands::open_external,
             commands::get_thumbnails,
             commands::prepare_thumbnails,
+            commands::thumbnail_census,
             commands::list_quarantine,
             commands::list_backups,
             commands::list_backup_entries,

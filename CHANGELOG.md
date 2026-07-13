@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.12.0 — Instruments, Not Guesses
+
+* **Diagnose blanks.** The gallery gains a census: one click lists the
+  resource types inside every package that yielded *no* thumbnail —
+  labeled with the researched type table plus raw hex, counted per
+  package. Build/Buy staying blank after the DDS work means the image
+  type table is incomplete; this instrument names exactly what the
+  blanks contain so the next decoders are added on evidence. (A
+  speculative RLE2 decoder was drafted and deliberately shelved for the
+  same reason the category constants once went wrong — no more
+  folklore constants.)
+* **Recent Findings wear thumbnails.** Dashboard finding rows now lead
+  with the file's extracted in-game image where one exists, falling back
+  to the emblem chip — click-through to the owning screen unchanged.
+* Coming next on this thread, in order: census-informed decoder
+  expansion, and CAS subcategory chips (Shoes, Tops, Hair, Sculpts…)
+  parsed properly from each CAS part's BodyType field.
+
+
 ## 0.11.0 — The Gallery, Grown Up
 
 * **DDS thumbnails render.** Build/Buy (and most non-CAS) previews are

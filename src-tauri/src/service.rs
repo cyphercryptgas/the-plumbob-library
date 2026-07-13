@@ -1552,3 +1552,46 @@ pub fn prepare_thumbnails(
     }
     Ok(generated)
 }
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CensusRow {
+    pub type_hex: String,
+    pub name: String,
+    pub files: i64,
+}
+
+/// What do the packages *without* extractable thumbnails actually contain?
+/// Counts resource types across every package whose cache entry is a
+/// "no image" marker or absent entirely — the ground truth that ends
+/// constant-guessing.
+pub fn thumbnail_census(
+    dbm: &Mutex<Database>,
+    data_dir: &Path,
+) -> UiResult<Vec<CensusRow>> {
+    let cache = data_dir.join("Thumbnails");
+    let work = {
+        let guard = lock_db(dbm)?;
+        db::files::package_paths(guard.conn()).map_err(err_str)?
+    };
+    let blanks: Vec<i64> = work
+        .iter()
+        .filter(|(id, _)| {
+            !cache.join(format!("{id}.png")).exists()
+                && !cache.join(format!("{id}.jpg")).exists()
+        })
+        .map(|(id, _)| *id)
+        .collect();
+    let census = {
+        let guard = lock_db(dbm)?;
+        db::packages::resource_type_census(guard.conn(), &blanks).map_err(err_str)?
+    };
+    Ok(census
+        .into_iter()
+        .map(|(type_id, files)| CensusRow {
+            type_hex: format!("0x{type_id:08X}"),
+            name: plumbob_core::dbpf::type_name(type_id).to_string(),
+            files,
+        })
+        .collect())
+}

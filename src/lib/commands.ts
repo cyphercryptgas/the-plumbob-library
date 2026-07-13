@@ -193,3 +193,11 @@ export const getThumbnails = (fileIds: number[]) =>
   call<ThumbDto[]>("get_thumbnails", { fileIds });
 
 export const prepareThumbnails = () => call<number>("prepare_thumbnails");
+
+export interface CensusRow {
+  typeHex: string;
+  name: string;
+  files: number;
+}
+
+export const thumbnailCensus = () => call<CensusRow[]>("thumbnail_census");
