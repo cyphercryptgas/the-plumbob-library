@@ -121,7 +121,7 @@ export function Library(props: { initialSearch?: string }) {
   const [preparing, setPreparing] = useState<{ done: number; total: number } | null>(null);
   const [prepared, setPrepared] = useState<api.PrepareOutcome | null>(null);
   const [thumbsEpoch, setThumbsEpoch] = useState(0);
-  const [census, setCensus] = useState<api.CensusRow[] | null>(null);
+  const [census, setCensus] = useState<api.CensusReport | null>(null);
   const [censusBusy, setCensusBusy] = useState(false);
   const [censusCopied, setCensusCopied] = useState(false);
 
@@ -469,9 +469,13 @@ export function Library(props: { initialSearch?: string }) {
             <button
               type="button"
               onClick={() => {
-                const tsv = census
-                  .map((r) => `${r.typeHex}\t${r.name}\t${r.files}`)
-                  .join("\n");
+                const tsv = [
+                  ...census.rows.map(
+                    (r) => `${r.typeHex}\t${r.name}\t${r.files}`
+                  ),
+                  `CAS versions\t${census.casProbe.versions.join(" ")}`,
+                  `CAS calibration\t${census.casProbe.verdict}`,
+                ].join("\n");
                 navigator.clipboard
                   .writeText(tsv)
                   .then(() => {
@@ -493,7 +497,7 @@ export function Library(props: { initialSearch?: string }) {
             </button>
           </div>
           <div className="mt-2 font-mono text-[11px] leading-relaxed text-ink">
-            {census.map((r) => (
+            {census.rows.map((r) => (
               <div key={r.typeHex} className="flex gap-3">
                 <span className="w-28 shrink-0">{r.typeHex}</span>
                 <span className="min-w-0 flex-1 truncate">{r.name}</span>
@@ -503,6 +507,10 @@ export function Library(props: { initialSearch?: string }) {
               </div>
             ))}
           </div>
+          <p className="mt-2 text-[11px] text-ink-muted">
+            CAS probe — versions {census.casProbe.versions.join(" · ")} ·{" "}
+            {census.casProbe.verdict}
+          </p>
         </Card>
       ) : null}
 

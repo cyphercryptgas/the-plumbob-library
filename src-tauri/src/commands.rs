@@ -624,7 +624,7 @@ pub async fn prepare_thumbnails(
 #[tauri::command]
 pub async fn thumbnail_census(
     state: State<'_, AppState>,
-) -> UiResult<Vec<service::CensusRow>> {
+) -> UiResult<service::CensusReport> {
     let dbm = state.db.clone();
     let data_dir = state.data_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {

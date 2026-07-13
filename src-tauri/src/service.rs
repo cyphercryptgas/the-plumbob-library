@@ -1448,6 +1448,15 @@ pub fn curse_status(
 // Thumbnails
 // ---------------------------------------------------------------------------
 
+/// Bump when decoders change: markers from older generations are stale
+/// verdicts and get retried. g3 = DST unshuffle.
+const THUMB_GEN: u32 = 3;
+
+fn stale_markers(cache: &Path, id: i64) {
+    let _ = std::fs::remove_file(cache.join(format!("{id}.none")));
+    let _ = std::fs::remove_file(cache.join(format!("{id}.none2")));
+}
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ThumbDto {
@@ -1477,9 +1486,8 @@ pub fn thumbnails(
     for row in rows {
         let png = cache.join(format!("{}.png", row.id));
         let jpg = cache.join(format!("{}.jpg", row.id));
-        let none = cache.join(format!("{}.none2", row.id));
-        // Markers written before the DDS decoder existed are stale verdicts.
-        let _ = std::fs::remove_file(cache.join(format!("{}.none", row.id)));
+        let none = cache.join(format!("{}.none.g{THUMB_GEN}", row.id));
+        stale_markers(&cache, row.id);
         let cached = if png.exists() {
             Some(png)
         } else if jpg.exists() {
@@ -1544,8 +1552,8 @@ pub fn prepare_thumbnails(
     for (i, (id, absolute)) in work.iter().enumerate() {
         let png = cache.join(format!("{id}.png"));
         let jpg = cache.join(format!("{id}.jpg"));
-        let none = cache.join(format!("{id}.none2"));
-        let _ = std::fs::remove_file(cache.join(format!("{id}.none")));
+        let none = cache.join(format!("{id}.none.g{THUMB_GEN}"));
+        stale_markers(&cache, *id);
         if png.exists() || jpg.exists() {
             cached += 1;
         } else if none.exists() {
@@ -1588,14 +1596,28 @@ pub struct CensusRow {
     pub files: i64,
 }
 
-/// What do the packages *without* extractable thumbnails actually contain?
-/// Counts resource types across every package whose cache entry is a
-/// "no image" marker or absent entirely — the ground truth that ends
-/// constant-guessing.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CasProbe {
+    pub versions: Vec<String>,
+    pub verdict: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CensusReport {
+    pub rows: Vec<CensusRow>,
+    pub cas_probe: CasProbe,
+}
+
+/// What do the packages *without* extractable thumbnails actually
+/// contain — plus a CAS probe: the versions seen in real CASP payloads
+/// and the calibration verdict, so subcategory failures diagnose
+/// themselves from the same card.
 pub fn thumbnail_census(
     dbm: &Mutex<Database>,
     data_dir: &Path,
-) -> UiResult<Vec<CensusRow>> {
+) -> UiResult<CensusReport> {
     let cache = data_dir.join("Thumbnails");
     let work = {
         let guard = lock_db(dbm)?;
@@ -1613,7 +1635,7 @@ pub fn thumbnail_census(
         let guard = lock_db(dbm)?;
         db::packages::resource_type_census(guard.conn(), &blanks).map_err(err_str)?
     };
-    Ok(census
+    let rows = census
         .into_iter()
         .map(|(type_id, files)| CensusRow {
             type_hex: format!("0x{type_id:08X}"),
@@ -1622,7 +1644,43 @@ pub fn thumbnail_census(
                 .to_string(),
             files,
         })
-        .collect())
+        .collect();
+
+    let cas = {
+        let guard = lock_db(dbm)?;
+        db::files::cas_needing_subcategory(guard.conn()).map_err(err_str)?
+    };
+    let mut payloads: Vec<Vec<u8>> = Vec::new();
+    for (_, absolute) in cas.iter().take(400) {
+        if let Ok(Some(p)) = plumbob_core::dbpf::read_casp_payload(Path::new(absolute)) {
+            payloads.push(p);
+        }
+    }
+    let mut version_counts: std::collections::HashMap<u32, usize> =
+        std::collections::HashMap::new();
+    for p in &payloads {
+        if p.len() >= 4 {
+            let v = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
+            *version_counts.entry(v).or_insert(0) += 1;
+        }
+    }
+    let mut versions: Vec<(u32, usize)> = version_counts.into_iter().collect();
+    versions.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+    let versions: Vec<String> = versions
+        .into_iter()
+        .take(6)
+        .map(|(v, n)| format!("0x{v:02X}×{n}"))
+        .collect();
+    let refs: Vec<&[u8]> = payloads.iter().map(|p| p.as_slice()).collect();
+    let verdict = if cas.is_empty() {
+        "all CAS parts classified".to_string()
+    } else {
+        plumbob_core::casp::calibrate_verbose(&refs).1
+    };
+    Ok(CensusReport {
+        rows,
+        cas_probe: CasProbe { versions, verdict },
+    })
 }
 
 /// Classify CAS subcategories with a scheme elected from the library

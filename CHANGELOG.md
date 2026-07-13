@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.15.0 — The Table Delivers
+
+* **Build/Buy decodes: DST.** The census named it — 0x00B2D882 present
+  in all 309 imageless packages, alongside Object Catalog, Definition,
+  Light, Footprint, Slot: furniture, wearing EA's DST format (a normal
+  DDS whose fourCC reads DST1/DST5 with block bytes shuffled into
+  planar streams). The unshuffle is implemented exactly per the s4pi
+  reference — stream order fetched from source, not memory — and tested
+  by compressing real blocks, applying the reference's forward shuffle,
+  and demanding pixel-faithful decode. Malformed data falls through.
+* **Markers now carry a decoder generation.** Your 532 "without art"
+  were verdicts from a lesser decoder; generation-stamped markers
+  invalidate automatically whenever decoding improves, so Re-check
+  retries them all — no more one-off amnesties.
+* **Calibration reaches further and reports itself.** The BodyType
+  election now tries three prefix alignments across sixty bytes, and
+  the census card gains a CAS probe line: the CASP versions seen in
+  your library and the calibration verdict (elected scheme with its
+  numbers, or the nearest miss). If subcategories stay empty, the same
+  Copy button now carries the diagnosis.
+
+
 ## 0.14.0 — Calibration & Three Confessions
 
 * **Confession one: the CASP field sequence was wrong**, which is why

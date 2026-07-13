@@ -586,6 +586,11 @@ pub fn extract_thumbnail(path: &Path) -> Result<Option<(Vec<u8>, &'static str)>,
                 if let Some(png) = dds_to_png(&payload) {
                     return Ok(Some((png, "png")));
                 }
+                if let Some(un) = unshuffle_dst(&payload) {
+                    if let Some(png) = dds_to_png(&un) {
+                        return Ok(Some((png, "png")));
+                    }
+                }
             }
         }
     }
@@ -629,6 +634,52 @@ pub fn read_casp_payload(path: &Path) -> Result<Option<Vec<u8>>, DbpfError> {
         }
     }
     Ok(None)
+}
+
+/// Undo EA's DST block-shuffle: a normal DDS header whose fourCC reads
+/// DST1/DST5, with block fields split into planar streams for better LZ.
+/// Stream order per the s4pi reference — DST1: [4B endpoints]×N then
+/// [4B indices]×N; DST5: [2B alpha-endpoints]×N, [4B color-endpoints]×N,
+/// [6B alpha-indices]×N, [4B color-indices]×N. Returns a decodable
+/// DXT1/DXT5 DDS, or None for anything malformed.
+fn unshuffle_dst(dds: &[u8]) -> Option<Vec<u8>> {
+    if dds.len() < 128 || &dds[..4] != b"DDS " {
+        return None;
+    }
+    let fourcc: [u8; 4] = dds[84..88].try_into().ok()?;
+    let data = &dds[128..];
+    let mut out = Vec::with_capacity(dds.len());
+    out.extend_from_slice(&dds[..128]);
+    match &fourcc {
+        b"DST1" => {
+            if data.is_empty() || data.len() % 8 != 0 {
+                return None;
+            }
+            let n = data.len() / 8;
+            let (s_end, s_idx) = (0usize, 4 * n);
+            for i in 0..n {
+                out.extend_from_slice(&data[s_end + 4 * i..s_end + 4 * i + 4]);
+                out.extend_from_slice(&data[s_idx + 4 * i..s_idx + 4 * i + 4]);
+            }
+            out[84..88].copy_from_slice(b"DXT1");
+        }
+        b"DST5" => {
+            if data.is_empty() || data.len() % 16 != 0 {
+                return None;
+            }
+            let n = data.len() / 16;
+            let (o_a, o_ce, o_ai, o_ci) = (0usize, 2 * n, 6 * n, 12 * n);
+            for i in 0..n {
+                out.extend_from_slice(&data[o_a + 2 * i..o_a + 2 * i + 2]);
+                out.extend_from_slice(&data[o_ai + 6 * i..o_ai + 6 * i + 6]);
+                out.extend_from_slice(&data[o_ce + 4 * i..o_ce + 4 * i + 4]);
+                out.extend_from_slice(&data[o_ci + 4 * i..o_ci + 4 * i + 4]);
+            }
+            out[84..88].copy_from_slice(b"DXT5");
+        }
+        _ => return None,
+    }
+    Some(out)
 }
 
 /// Transcode a DDS thumbnail (DXT1/3/5 or uncompressed BGRA) to PNG so it
@@ -822,6 +873,106 @@ mod thumb_tests {
         let info = reader.next_frame(&mut buf).unwrap();
         buf.truncate(info.buffer_size());
         (info.width, info.height, buf)
+    }
+
+    fn dds_dxt1_bytes(rgba: [u8; 4], w: usize, h: usize) -> Vec<u8> {
+        let pixels = vec![rgba; w * h].concat();
+        let size = texpresso::Format::Bc1.compressed_size(w, h);
+        let mut compressed = vec![0u8; size];
+        texpresso::Format::Bc1.compress(
+            &pixels,
+            w,
+            h,
+            texpresso::Params::default(),
+            &mut compressed,
+        );
+        let mut dds = ddsfile::Dds::new_d3d(ddsfile::NewD3dParams {
+            height: h as u32,
+            width: w as u32,
+            depth: None,
+            format: ddsfile::D3DFormat::DXT1,
+            mipmap_levels: None,
+            caps2: None,
+        })
+        .unwrap();
+        dds.data = compressed;
+        let mut out = Vec::new();
+        dds.write(&mut out).unwrap();
+        out
+    }
+
+    /// The reference's forward shuffle, so unshuffle is tested against the
+    /// documented transform rather than against itself.
+    fn shuffle_reference(dds: &[u8]) -> Vec<u8> {
+        let data = &dds[128..];
+        let mut out = dds[..128].to_vec();
+        match &dds[84..88] {
+            b"DXT1" => {
+                let n = data.len() / 8;
+                let (mut ends, mut idxs) = (Vec::new(), Vec::new());
+                for b in data.chunks_exact(8) {
+                    ends.extend_from_slice(&b[..4]);
+                    idxs.extend_from_slice(&b[4..]);
+                }
+                out.extend(ends);
+                out.extend(idxs);
+                out[84..88].copy_from_slice(b"DST1");
+            }
+            b"DXT5" => {
+                let n = data.len() / 16;
+                let _ = n;
+                let (mut a, mut ai, mut ce, mut ci) =
+                    (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+                for b in data.chunks_exact(16) {
+                    a.extend_from_slice(&b[..2]);
+                    ai.extend_from_slice(&b[2..8]);
+                    ce.extend_from_slice(&b[8..12]);
+                    ci.extend_from_slice(&b[12..16]);
+                }
+                out.extend(a);
+                out.extend(ce);
+                out.extend(ai);
+                out.extend(ci);
+                out[84..88].copy_from_slice(b"DST5");
+            }
+            _ => unreachable!(),
+        }
+        out
+    }
+
+    #[test]
+    fn dst_shuffled_images_unshuffle_and_decode() {
+        for (dds, expect) in [
+            (dds_dxt5_bytes([64, 140, 200, 255], 8, 8), [64u8, 140, 200]),
+            (dds_dxt1_bytes([200, 90, 40, 255], 8, 8), [200, 90, 40]),
+        ] {
+            let dst = shuffle_reference(&dds);
+            assert_ne!(&dst[128..], &dds[128..], "shuffle actually reorders");
+            let pkg = build_package(&[(0x00B2_D882, COMP_NONE, &dst, dst.len() as u32)]);
+            let (_d, p) = write_tmp(&pkg);
+            let (bytes, ext) = extract_thumbnail(&p).unwrap().unwrap();
+            assert_eq!(ext, "png");
+            let (w, h, px) = decode_png(&bytes);
+            assert_eq!((w, h), (8, 8));
+            for c in 0..3 {
+                assert!(
+                    (i32::from(px[c]) - i32::from(expect[c])).abs() <= 12,
+                    "channel {c}: {} vs {}",
+                    px[c],
+                    expect[c]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_dst_falls_through() {
+        let mut dds = dds_dxt5_bytes([10, 10, 10, 255], 8, 8);
+        dds[84..88].copy_from_slice(b"DST5");
+        dds.truncate(dds.len() - 3); // len % 16 broken
+        let pkg = build_package(&[(0x00B2_D882, COMP_NONE, &dds, dds.len() as u32)]);
+        let (_d, p) = write_tmp(&pkg);
+        assert!(extract_thumbnail(&p).unwrap().is_none());
     }
 
     #[test]

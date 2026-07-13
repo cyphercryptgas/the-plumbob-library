@@ -207,4 +207,10 @@ export interface CensusRow {
   files: number;
 }
 
-export const thumbnailCensus = () => call<CensusRow[]>("thumbnail_census");
+export interface CensusReport {
+  rows: CensusRow[];
+  casProbe: { versions: string[]; verdict: string };
+}
+
+export const thumbnailCensus = () =>
+  call<CensusReport>("thumbnail_census");
