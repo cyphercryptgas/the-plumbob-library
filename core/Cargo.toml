@@ -1,6 +1,6 @@
 [package]
 name = "plumbob-core"
-version = "0.10.0"
+version = "0.11.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
@@ -25,7 +25,11 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 # keeps the database identical on every platform, including Windows CI.
 rusqlite = { version = "0.31", features = ["bundled"] }
 
-# Thumbnail extraction: DBPF payloads are commonly zlib-compressed.
+# Thumbnail extraction: DBPF payloads are commonly zlib-compressed, and
+# Build/Buy thumbnails are DDS (DXT-compressed) needing transcode to PNG.
+ddsfile = "0.5"
+texpresso = "2"
+png = "0.17"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
 [dev-dependencies]

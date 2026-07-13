@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { Pagination } from "../components/Pagination";
+import { onThumbsProgress } from "../lib/events";
 import * as api from "../lib/commands";
 import { formatBytes, formatDateTime, plural } from "../lib/format";
 import type { FileRow, LibraryFilter } from "../lib/types";
 import { useApp } from "../state/AppContext";
-import { Button, Card, EmptyState, Pill, TextInput } from "../components/ui";
+import { Button, Card, EmptyState, Pill, TextInput , Icon } from "../components/ui";
 import { QuarantineDialog } from "../components/QuarantineDialog";
 
 const PAGE_SIZE = 100;
@@ -20,6 +22,16 @@ const FILTERS: { key: LibraryFilter; label: string }[] = [
   { key: "quarantined", label: "Quarantined" },
   { key: "disabled", label: "Disabled" },
 ];
+
+const CATEGORY_ART: Record<string, { icon: Parameters<typeof Icon>[0]["name"]; grad: string }> = {
+  cas: { icon: "profiles", grad: "linear-gradient(135deg,#f3dfd2,#d9b8a6)" },
+  buildbuy: { icon: "package", grad: "linear-gradient(135deg,#dfe8da,#b9c9ae)" },
+  animations: { icon: "activity", grad: "linear-gradient(135deg,#e8e2f2,#c9bede)" },
+  gameplay: { icon: "conflicts", grad: "linear-gradient(135deg,#f2ead2,#dcc998)" },
+  scripts: { icon: "code", grad: "linear-gradient(135deg,#dde9ea,#b3cdd1)" },
+  other: { icon: "archive", grad: "linear-gradient(135deg,#eee7dc,#d6c9b4)" },
+};
+const DEFAULT_ART = { icon: "file" as const, grad: "linear-gradient(135deg,#efe8d9,#dccfb6)" };
 
 const CATEGORY_BADGE: Record<string, string> = {
   cas: "CAS",
@@ -77,8 +89,27 @@ export function Library(props: { initialSearch?: string }) {
     added_desc: "Newest first",
     added_asc: "Oldest first",
   };
-  const [view, setView] = useState<"list" | "grid">("list");
+  const [view, setView] = useState<"list" | "grid">("grid");
   const [thumbs, setThumbs] = useState<Record<number, string | null>>({});
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [preparing, setPreparing] = useState<{ done: number; total: number } | null>(null);
+
+  useEffect(
+    () => onThumbsProgress((p) => setPreparing((cur) => (cur ? p : cur))),
+    []
+  );
+
+  const prewarm = async () => {
+    setPreparing({ done: 0, total: 0 });
+    try {
+      await api.prepareThumbnails();
+      setThumbs({});
+    } catch (e) {
+      reportError(e);
+    } finally {
+      setPreparing(null);
+    }
+  };
 
   useEffect(() => {
     if (view !== "grid" || rows.length === 0) return;
@@ -189,7 +220,6 @@ export function Library(props: { initialSearch?: string }) {
     });
   }, []);
 
-  const hasMore = total !== null ? page * PAGE_SIZE + rows.length < total : rows.length === PAGE_SIZE;
   const rangeStart = page * PAGE_SIZE + 1;
   const rangeEnd = page * PAGE_SIZE + rows.length;
 
@@ -251,6 +281,23 @@ export function Library(props: { initialSearch?: string }) {
           >
             {view === "list" ? "Grid ▦" : "List ☰"}
           </button>
+          {view === "grid" ? (
+            preparing ? (
+              <span className="text-xs text-ink-muted">
+                Preparing thumbnails… {preparing.done.toLocaleString()}
+                {preparing.total ? ` / ${preparing.total.toLocaleString()}` : ""}
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void prewarm()}
+                title="Extract every package's thumbnail now so the gallery never waits"
+                className="rounded-control border border-border-subtle px-2.5 py-1 text-xs text-ink-secondary transition hover:border-gold/60"
+              >
+                Prepare all thumbnails
+              </button>
+            )
+          ) : null}
         </div>
         <div
           className="mt-3 flex flex-wrap items-center gap-1.5"
@@ -337,41 +384,95 @@ export function Library(props: { initialSearch?: string }) {
         view === "grid" ? (
           <Card>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-              {rows.map((f) => (
-                <div key={f.id} className="min-w-0">
-                  <div
-                    className={`raised-pill flex aspect-square items-center justify-center overflow-hidden rounded-xl border border-gold/40 bg-soft ${f.enabled ? "" : "opacity-60"}`}
-                    title={f.relativePath}
-                  >
-                    {thumbs[f.id] ? (
-                      <img
-                        src={thumbs[f.id] as string}
-                        alt=""
-                        loading="lazy"
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <span className="font-display text-2xl font-bold text-[#94875e]">
-                        {f.currentFilename.charAt(0).toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-                  <div
-                    className={`mt-1 truncate text-xs ${f.enabled ? "text-ink" : "text-ink-muted"}`}
-                    title={f.currentFilename}
-                  >
-                    {f.currentFilename}
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {f.category && CATEGORY_BADGE[f.category] ? (
-                      <Pill tone="sage">{CATEGORY_BADGE[f.category]}</Pill>
+              {rows.map((f) => {
+                const selectable = !f.missing && f.status !== "quarantined";
+                const art =
+                  (f.category && CATEGORY_ART[f.category]) || DEFAULT_ART;
+                const expanded = expandedId === f.id;
+                return (
+                  <div key={f.id} className="min-w-0">
+                    <div
+                      className={`relative ${selected.has(f.id) ? "rounded-xl ring-2 ring-[#c9a45c]" : ""}`}
+                    >
+                      {selectable ? (
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${f.currentFilename}`}
+                          className="absolute left-1.5 top-1.5 z-10 h-4 w-4"
+                          checked={selected.has(f.id)}
+                          onChange={() => toggleOne(f.id)}
+                        />
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedId((cur) => (cur === f.id ? null : f.id))
+                        }
+                        title={f.relativePath}
+                        className={`raised-pill flex aspect-square w-full items-center justify-center overflow-hidden rounded-xl border border-gold/40 bg-soft ${f.enabled ? "" : "opacity-60"}`}
+                      >
+                        {thumbs[f.id] ? (
+                          <img
+                            src={thumbs[f.id] as string}
+                            alt=""
+                            loading="lazy"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <span
+                            className="flex h-full w-full items-center justify-center"
+                            style={{ backgroundImage: art.grad }}
+                          >
+                            <Icon
+                              name={art.icon}
+                              size={26}
+                              className="text-sage-deep opacity-80"
+                            />
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                    <div
+                      className={`mt-1 truncate text-xs ${f.enabled ? "text-ink" : "text-ink-muted"}`}
+                      title={f.currentFilename}
+                    >
+                      {f.currentFilename}
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {f.category && CATEGORY_BADGE[f.category] ? (
+                        <Pill tone="sage">{CATEGORY_BADGE[f.category]}</Pill>
+                      ) : null}
+                      {!f.enabled && f.status === "current" ? (
+                        <Pill tone="neutral">off</Pill>
+                      ) : null}
+                    </div>
+                    {expanded && selectable ? (
+                      <div className="mt-1 flex gap-1">
+                        {f.fileType === "package" ||
+                        f.fileType === "ts4script" ? (
+                          <button
+                            type="button"
+                            disabled={toggling}
+                            onClick={() => void toggleFiles([f.id], !f.enabled)}
+                            className="rounded-control border border-border-subtle px-2 py-0.5 text-[11px] text-ink-secondary"
+                          >
+                            {f.enabled ? "Disable" : "Enable"}
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            api.revealInExplorer(f.absolutePath).catch(reportError)
+                          }
+                          className="rounded-control border border-border-subtle px-2 py-0.5 text-[11px] text-ink-secondary"
+                        >
+                          Reveal
+                        </button>
+                      </div>
                     ) : null}
-                    {!f.enabled && f.status === "current" ? (
-                      <Pill tone="neutral">off</Pill>
-                    ) : null}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </Card>
         ) : (
@@ -508,15 +609,15 @@ export function Library(props: { initialSearch?: string }) {
         )
       )}
 
-      <div className="flex items-center justify-between">
-        <Button variant="quiet" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
-          ← Previous
-        </Button>
-        <span className="text-xs text-ink-muted">Page {page + 1}</span>
-        <Button variant="quiet" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>
-          Next →
-        </Button>
-      </div>
+      {total !== null ? (
+        <div className="flex justify-center">
+          <Pagination
+            page={page}
+            pageCount={Math.max(1, Math.ceil(total / PAGE_SIZE))}
+            onPage={setPage}
+          />
+        </div>
+      ) : null}
 
       {quarantining ? (
         <QuarantineDialog

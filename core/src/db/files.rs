@@ -1028,3 +1028,17 @@ mod disabled_mod_tests {
         assert!(tmp.path().join("F.package").exists(), "refused, not moved");
     }
 }
+
+/// Every current, present package with its on-disk path — the thumbnail
+/// prewarm's worklist.
+pub fn package_paths(conn: &Connection) -> Result<Vec<(i64, String)>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, absolute_path FROM files
+         WHERE file_type = 'package' AND missing = 0 AND status = 'current'
+         ORDER BY relative_path COLLATE NOCASE",
+    )?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}

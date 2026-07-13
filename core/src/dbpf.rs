@@ -545,7 +545,7 @@ const MAX_THUMB_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Thumbnail-bearing image types, in preference order — the dedicated
 /// thumbnail type first, DDS deliberately excluded (needs conversion).
-const THUMB_TYPES: [u32; 3] = [0x3C1A_F1F2, 0x5B28_2D45, 0x2F7D_0004];
+const THUMB_TYPES: [u32; 4] = [0x3C1A_F1F2, 0x5B28_2D45, 0x2F7D_0004, 0x3453_CF95];
 
 /// Pull the best in-game image out of a package: PNG or JPEG payloads
 /// only, decompressing zlib entries, sniffing magic bytes, and skipping —
@@ -600,9 +600,69 @@ pub fn extract_thumbnail(path: &Path) -> Result<Option<(Vec<u8>, &'static str)>,
             if payload.len() >= 3 && payload[..3] == JPG_MAGIC {
                 return Ok(Some((payload, "jpg")));
             }
+            if payload.len() >= 4 && &payload[..4] == b"DDS " {
+                if let Some(png) = dds_to_png(&payload) {
+                    return Ok(Some((png, "png")));
+                }
+            }
         }
     }
     Ok(None)
+}
+
+/// Transcode a DDS thumbnail (DXT1/3/5 or uncompressed BGRA) to PNG so it
+/// can render in a plain <img>. Anything unrecognized returns None and the
+/// caller simply moves on — a wrong guess must never poison extraction.
+fn dds_to_png(bytes: &[u8]) -> Option<Vec<u8>> {
+    let dds = ddsfile::Dds::read(&mut std::io::Cursor::new(bytes)).ok()?;
+    let w = dds.header.width as usize;
+    let h = dds.header.height as usize;
+    if w == 0 || h == 0 || w > 2048 || h > 2048 {
+        return None;
+    }
+    let data = dds.get_data(0).ok()?;
+    let mut rgba = vec![0u8; w * h * 4];
+    let mut bc = |f: texpresso::Format, block: usize| -> Option<()> {
+        let needed = w.div_ceil(4) * h.div_ceil(4) * block;
+        if data.len() < needed {
+            return None;
+        }
+        Some(f.decompress(data, w, h, &mut rgba))
+    };
+    match dds.get_d3d_format() {
+        Some(ddsfile::D3DFormat::DXT1) => bc(texpresso::Format::Bc1, 8)?,
+        Some(ddsfile::D3DFormat::DXT3) => bc(texpresso::Format::Bc2, 16)?,
+        Some(ddsfile::D3DFormat::DXT5) => bc(texpresso::Format::Bc3, 16)?,
+        Some(ddsfile::D3DFormat::A8R8G8B8) | Some(ddsfile::D3DFormat::X8R8G8B8) => {
+            if data.len() < w * h * 4 {
+                return None;
+            }
+            let opaque = matches!(
+                dds.get_d3d_format(),
+                Some(ddsfile::D3DFormat::X8R8G8B8)
+            );
+            for (i, px) in data.chunks_exact(4).take(w * h).enumerate() {
+                rgba[i * 4] = px[2];
+                rgba[i * 4 + 1] = px[1];
+                rgba[i * 4 + 2] = px[0];
+                rgba[i * 4 + 3] = if opaque { 255 } else { px[3] };
+            }
+        }
+        _ => match dds.get_dxgi_format() {
+            Some(ddsfile::DxgiFormat::BC1_UNorm) => bc(texpresso::Format::Bc1, 8)?,
+            Some(ddsfile::DxgiFormat::BC3_UNorm) => bc(texpresso::Format::Bc3, 16)?,
+            _ => return None,
+        },
+    }
+    let mut out = Vec::new();
+    {
+        let mut enc = png::Encoder::new(&mut out, w as u32, h as u32);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        let mut writer = enc.write_header().ok()?;
+        writer.write_image_data(&rgba).ok()?;
+    }
+    Some(out)
 }
 
 #[cfg(test)]
@@ -708,6 +768,71 @@ mod thumb_tests {
         assert_eq!(ext, "png", "0x3C1AF1F2 outranks 0x2F7D0004");
     }
 
+    fn dds_dxt5_bytes(rgba: [u8; 4], w: usize, h: usize) -> Vec<u8> {
+        let pixels = vec![rgba; w * h].concat();
+        let size = texpresso::Format::Bc3.compressed_size(w, h);
+        let mut compressed = vec![0u8; size];
+        texpresso::Format::Bc3.compress(
+            &pixels,
+            w,
+            h,
+            texpresso::Params::default(),
+            &mut compressed,
+        );
+        let mut dds = ddsfile::Dds::new_d3d(ddsfile::NewD3dParams {
+            height: h as u32,
+            width: w as u32,
+            depth: None,
+            format: ddsfile::D3DFormat::DXT5,
+            mipmap_levels: None,
+            caps2: None,
+        })
+        .unwrap();
+        dds.data = compressed;
+        let mut out = Vec::new();
+        dds.write(&mut out).unwrap();
+        out
+    }
+
+    fn decode_png(bytes: &[u8]) -> (u32, u32, Vec<u8>) {
+        let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+        let mut reader = decoder.read_info().unwrap();
+        let mut buf = vec![0u8; reader.output_buffer_size()];
+        let info = reader.next_frame(&mut buf).unwrap();
+        buf.truncate(info.buffer_size());
+        (info.width, info.height, buf)
+    }
+
+    #[test]
+    fn dds_thumbnails_transcode_to_png() {
+        let dds = dds_dxt5_bytes([180, 60, 90, 255], 8, 8);
+        let packed = zlib(&dds);
+        let pkg = build_package(&[(0x3453_CF95, COMP_ZLIB, &packed, dds.len() as u32)]);
+        let (_d, p) = write_tmp(&pkg);
+        let (bytes, ext) = extract_thumbnail(&p).unwrap().unwrap();
+        assert_eq!(ext, "png");
+        let (w, h, pixels) = decode_png(&bytes);
+        assert_eq!((w, h), (8, 8));
+        // BC3 is lossy; a solid color survives within a small tolerance.
+        assert!((i32::from(pixels[0]) - 180).abs() <= 10, "r = {}", pixels[0]);
+        assert!((i32::from(pixels[1]) - 60).abs() <= 10, "g = {}", pixels[1]);
+        assert!((i32::from(pixels[2]) - 90).abs() <= 10, "b = {}", pixels[2]);
+        assert_eq!(pixels[3], 255);
+    }
+
+    #[test]
+    fn png_bearing_types_still_outrank_dds() {
+        let png_res = png_bytes();
+        let dds = dds_dxt5_bytes([10, 200, 10, 255], 8, 8);
+        let pkg = build_package(&[
+            (0x3453_CF95, COMP_NONE, &dds, dds.len() as u32),
+            (0x3C1A_F1F2, COMP_NONE, &png_res, png_res.len() as u32),
+        ]);
+        let (_d, p) = write_tmp(&pkg);
+        let (bytes, _) = extract_thumbnail(&p).unwrap().unwrap();
+        assert_eq!(bytes, png_res, "the dedicated thumbnail type wins");
+    }
+
     #[test]
     fn corrupt_and_foreign_payloads_fall_through_to_none() {
         let garbage = b"not-zlib-at-all".to_vec();
@@ -717,6 +842,9 @@ mod thumb_tests {
             (0x3453_CF95, COMP_NONE, &dds, dds.len() as u32),
         ]);
         let (_d, p) = write_tmp(&pkg);
-        assert!(extract_thumbnail(&p).unwrap().is_none());
+        assert!(
+            extract_thumbnail(&p).unwrap().is_none(),
+            "a DDS-labeled payload that isn't real DDS is skipped, not fatal"
+        );
     }
 }

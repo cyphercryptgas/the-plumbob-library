@@ -1492,10 +1492,13 @@ pub fn thumbnails(
                         None
                     }
                 }
-                _ => {
+                // Parsed fine, genuinely no image → remember that forever.
+                Ok(None) => {
                     let _ = std::fs::write(&none, b"");
                     None
                 }
+                // IO/corruption — worth retrying another day, no marker.
+                Err(_) => None,
             }
         };
         out.push(ThumbDto {
@@ -1504,4 +1507,48 @@ pub fn thumbnails(
         });
     }
     Ok(out)
+}
+
+/// Walk every package and fill the thumbnail cache ahead of time, so the
+/// gallery never waits. Read-only toward the library; emits
+/// `thumbs://progress` as it goes and returns how many images it made.
+pub fn prepare_thumbnails(
+    app: &AppHandle,
+    dbm: &Mutex<Database>,
+    data_dir: &Path,
+) -> UiResult<usize> {
+    let cache = data_dir.join("Thumbnails");
+    std::fs::create_dir_all(&cache).map_err(err_str)?;
+    let work = {
+        let guard = lock_db(dbm)?;
+        db::files::package_paths(guard.conn()).map_err(err_str)?
+    };
+    let total = work.len();
+    let mut generated = 0usize;
+    for (i, (id, absolute)) in work.iter().enumerate() {
+        let png = cache.join(format!("{id}.png"));
+        let jpg = cache.join(format!("{id}.jpg"));
+        let none = cache.join(format!("{id}.none"));
+        if !(png.exists() || jpg.exists() || none.exists()) {
+            match plumbob_core::dbpf::extract_thumbnail(Path::new(absolute)) {
+                Ok(Some((bytes, ext))) => {
+                    let target = cache.join(format!("{id}.{ext}"));
+                    if std::fs::write(target, bytes).is_ok() {
+                        generated += 1;
+                    }
+                }
+                Ok(None) => {
+                    let _ = std::fs::write(&none, b"");
+                }
+                Err(_) => {}
+            }
+        }
+        if i % 8 == 0 || i + 1 == total {
+            let _ = app.emit(
+                "thumbs://progress",
+                serde_json::json!({ "done": i + 1, "total": total }),
+            );
+        }
+    }
+    Ok(generated)
 }

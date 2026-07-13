@@ -191,3 +191,5 @@ export interface ThumbDto {
 
 export const getThumbnails = (fileIds: number[]) =>
   call<ThumbDto[]>("get_thumbnails", { fileIds });
+
+export const prepareThumbnails = () => call<number>("prepare_thumbnails");

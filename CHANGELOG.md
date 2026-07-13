@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.11.0 — The Gallery, Grown Up
+
+* **DDS thumbnails render.** Build/Buy (and most non-CAS) previews are
+  DDS-compressed; the extractor now transcodes DXT1/3/5 and uncompressed
+  DDS to PNG in pure Rust — proven against DDS files the tests compress
+  themselves. The categories that showed letters should light up after
+  their cache entries regenerate (Prepare all thumbnails does the whole
+  library in one pass).
+* **The grid is the Library now.** Image view is the default; every tile
+  is selectable (checkbox overlay + gold ring, feeding the same bulk
+  Disable / Enable / Set-aside toolbar) and expandable — tap a tile for
+  its Disable/Enable and Reveal actions, with the filename always neatly
+  beneath. Files with genuinely no embedded art wear designed
+  category emblems instead of bare letters.
+* **Prepare all thumbnails** pre-extracts the entire library with live
+  progress, so no page ever waits again; extractions were already cached
+  permanently, and IO hiccups no longer get mistaken for "no image"
+  (only a cleanly parsed, imageless package earns a skip marker).
+* **Numbered pagination**: « First ‹ neighbors … last-three › Last »
+  as a shared component, replacing Previous/Next.
+
+
 ## 0.10.0 — The Gallery
 
 * **Your mods, as they look in game.** The Library gains a Grid ▦ / List ☰

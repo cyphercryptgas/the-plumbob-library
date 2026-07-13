@@ -62,3 +62,9 @@ export function onPatchProgress(
 ): Unsub {
   return subscribe("patch://progress", handler);
 }
+
+export function onThumbsProgress(
+  handler: (p: { done: number; total: number }) => void
+): Unsub {
+  return subscribe("thumbs://progress", handler);
+}

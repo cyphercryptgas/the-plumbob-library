@@ -606,3 +606,17 @@ pub async fn get_thumbnails(
     .await
     .map_err(|e| format!("The thumbnail task failed unexpectedly: {e}"))?
 }
+
+#[tauri::command]
+pub async fn prepare_thumbnails(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> UiResult<usize> {
+    let dbm = state.db.clone();
+    let data_dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        service::prepare_thumbnails(&app, &dbm, &data_dir)
+    })
+    .await
+    .map_err(|e| format!("The thumbnail prewarm failed unexpectedly: {e}"))?
+}
