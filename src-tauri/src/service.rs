@@ -2145,3 +2145,99 @@ pub fn apply_update(dbm: &Mutex<Database>, data_dir: &Path, file_id: i64) -> UiR
         overlaps,
     })
 }
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeOutcome {
+    pub merged_name: String,
+    pub stats: plumbob_core::dbpf::MergeStats,
+}
+
+/// Merge selected packages into one, in game load order, with the
+/// originals snapshotted to Backups and then removed — a merge is a
+/// restore away from undone. The merged file appears in the Library on
+/// the next scan; the originals leave it immediately.
+pub fn merge_files(dbm: &Mutex<Database>, data_dir: &Path, file_ids: &[i64]) -> UiResult<MergeOutcome> {
+    if file_ids.len() < 2 {
+        return Err("Pick at least two packages to merge.".to_string());
+    }
+    if file_ids.len() > 200 {
+        return Err("Merging more than 200 packages at once isn't supported yet.".to_string());
+    }
+    let mut picked: Vec<(i64, String, String)> = Vec::new();
+    {
+        let guard = lock_db(dbm)?;
+        for id in file_ids {
+            let row = db::files::file_paths(guard.conn(), *id)
+                .map_err(err_str)?
+                .ok_or_else(|| "One of the selected files is no longer current.".to_string())?;
+            let (absolute, relative, name) = row;
+            if !absolute.to_lowercase().ends_with(".package") {
+                return Err(format!(
+                    "\"{name}\" isn't a .package — only packages share the DBPF \
+                     container, so only packages merge."
+                ));
+            }
+            picked.push((*id, absolute, relative));
+        }
+    }
+    // Game load order: case-insensitive by relative path — the merged
+    // winner must be the same resource the game already uses.
+    picked.sort_by_key(|(_, _, rel)| rel.to_lowercase());
+
+    let (roots_mods_base, snapshot_label) = {
+        let guard = lock_db(dbm)?;
+        let roots = resolve_roots(&guard, data_dir)?;
+        let rels: Vec<std::path::PathBuf> = picked
+            .iter()
+            .map(|(_, _, rel)| std::path::PathBuf::from(rel))
+            .collect();
+        let mut journal = db::ops::SqliteJournal::new(guard.conn());
+        ops::create_snapshot(
+            &roots.mods,
+            &roots.backups,
+            &rels,
+            &format!("Automatic backup before merge ({} packages)", picked.len()),
+            &mut journal,
+        )
+        .map_err(err_str)?;
+        journal.finish().map_err(err_str)?;
+        (roots.mods.path().to_path_buf(), format!("merge of {}", picked.len()))
+    };
+    let _ = snapshot_label;
+
+    let paths: Vec<std::path::PathBuf> = picked
+        .iter()
+        .map(|(_, abs, _)| std::path::PathBuf::from(abs))
+        .collect();
+    let path_refs: Vec<&Path> = paths.iter().map(|p| p.as_path()).collect();
+    let (bytes, stats) =
+        plumbob_core::dbpf::merge_packages(&path_refs).map_err(|e| e.to_string())?;
+
+    let merged_name = format!(
+        "Merged_{}.package",
+        chrono::Utc::now().format("%Y%m%d_%H%M%S")
+    );
+    let target = roots_mods_base.join(&merged_name);
+    if target.exists() {
+        return Err("A merged file with this timestamp already exists — try again.".to_string());
+    }
+    let tmp = target.with_extension("mmnew");
+    std::fs::write(&tmp, &bytes).map_err(|e| format!("Could not stage the merged file: {e}"))?;
+    std::fs::rename(&tmp, &target).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Could not place the merged file: {e}")
+    })?;
+
+    // Originals: snapshot secured them; now they leave the Mods folder
+    // and the Library's current view.
+    {
+        let guard = lock_db(dbm)?;
+        for (id, abs, _) in &picked {
+            std::fs::remove_file(abs)
+                .map_err(|e| format!("Merged file written, but removing an original failed: {e}"))?;
+            db::files::mark_removed(guard.conn(), *id).map_err(err_str)?;
+        }
+    }
+    Ok(MergeOutcome { merged_name, stats })
+}

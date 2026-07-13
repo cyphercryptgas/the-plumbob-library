@@ -43,6 +43,10 @@ re-judge the whole cache whenever standards improve. One-click Update
 downloads the latest release, backs up your copy, and swaps it in
 (single-file releases; archives fall back to Open Mod).
 
+**Merge.** Combine selected packages into one DBPF — game load order
+preserved on collisions, originals journaled to Backups first, fully
+reversible.
+
 **Quarantine, Backups, Activity.** The safety spine: nothing is ever
 deleted, everything is journaled, everything can come back.
 

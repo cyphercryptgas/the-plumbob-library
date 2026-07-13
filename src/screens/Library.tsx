@@ -108,6 +108,9 @@ export function Library(props: {
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [merging, setMerging] = useState(false);
+  const [rowsEpoch, setRowsEpoch] = useState(0);
+  const [mergeNote, setMergeNote] = useState<string | null>(null);
   const [quarantining, setQuarantining] = useState<number[] | null>(null);
   const [toggling, setToggling] = useState(false);
   const [sort, setSort] = useState<"name" | "added_desc" | "added_asc">("name");
@@ -238,7 +241,7 @@ export function Library(props: {
     return () => {
       alive = false;
     };
-  }, [query, filter, sort, page, libraryVersion, reportError]);
+  }, [query, filter, sort, page, libraryVersion, reportError, rowsEpoch]);
 
   const selectableRows = useMemo(
     () => rows.filter((r) => !r.missing && r.status !== "quarantined"),
@@ -282,7 +285,43 @@ export function Library(props: {
           </div>
           {selected.size > 0 ? (
             <>
-              <Button onClick={() => setQuarantining([...selected])}>
+              {(() => {
+                const pkgIds = rows
+                  .filter((r) => selected.has(r.id) && r.fileType === "package")
+                  .map((r) => r.id);
+                if (pkgIds.length < 2) return null;
+                return (
+                  <Button
+                    variant="soft"
+                    disabled={merging}
+                    title="Combine the selected packages into one, in game load order. Originals are backed up, then removed."
+                    onClick={() => {
+                      if (
+                        !window.confirm(
+                          `Merge ${pkgIds.length} packages into one? Originals are backed up to Backups and then removed from Mods.`
+                        )
+                      )
+                        return;
+                      setMerging(true);
+                      setMergeNote(null);
+                      api
+                        .mergeFiles(pkgIds)
+                        .then((out) => {
+                          setMergeNote(
+                            `Merged ${out.stats.sources} packages → ${out.mergedName} (${out.stats.resourcesOut.toLocaleString()} resources${out.stats.collisions > 0 ? `, ${out.stats.collisions} load-order collisions resolved` : ""}). Run a Scan to see it in the Library.`
+                          );
+                          setSelected(new Set());
+                          setRowsEpoch((e) => e + 1);
+                        })
+                        .catch(reportError)
+                        .finally(() => setMerging(false));
+                    }}
+                  >
+                    {merging ? "Merging…" : `Merge ${pkgIds.length} packages`}
+                  </Button>
+                );
+              })()}
+                            <Button onClick={() => setQuarantining([...selected])}>
                 Set aside {plural(selected.size, "file")}…
               </Button>
               <Button
@@ -456,6 +495,12 @@ export function Library(props: {
           ))}
         </div>
       </Card>
+
+      {mergeNote ? (
+        <Card>
+          <p className="text-xs text-ink-secondary">{mergeNote}</p>
+        </Card>
+      ) : null}
 
       {census ? (
         <Card>

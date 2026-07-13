@@ -656,6 +656,94 @@ pub fn read_casp_payload(path: &Path) -> Result<Option<Vec<u8>>, DbpfError> {
     Ok(None)
 }
 
+/// Merge statistics — the receipt a merge owes its user.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeStats {
+    pub sources: usize,
+    pub resources_in: usize,
+    pub resources_out: usize,
+    /// Same-TGI collisions where a later file (game load order) won.
+    pub collisions: usize,
+}
+
+/// Write a DBPF2 package: header, payloads, then a flags=0 index of
+/// 32-byte entries — byte-for-byte the shape our reader (and fixtures)
+/// specify. Entries are stored uncompressed; the game accepts that.
+pub fn write_package(resources: &[((u32, u32, u64), Vec<u8>)]) -> Vec<u8> {
+    let mut out = vec![0u8; 96];
+    out[0..4].copy_from_slice(b"DBPF");
+    out[4..8].copy_from_slice(&2u32.to_le_bytes());
+    out[8..12].copy_from_slice(&1u32.to_le_bytes()); // minor
+    out[0x24..0x28].copy_from_slice(&(resources.len() as u32).to_le_bytes());
+    out[0x3C..0x40].copy_from_slice(&3u32.to_le_bytes()); // index minor
+    let mut placed: Vec<(u32, u32)> = Vec::new();
+    for (_, payload) in resources {
+        let pos = out.len() as u32;
+        out.extend_from_slice(payload);
+        placed.push((pos, payload.len() as u32));
+    }
+    let index_pos = out.len() as u32;
+    out[0x40..0x44].copy_from_slice(&index_pos.to_le_bytes());
+    let index_size = 4 + resources.len() * 32;
+    out[0x2C..0x30].copy_from_slice(&(index_size as u32).to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes()); // flags: no constants
+    for (i, ((type_id, group, instance), _)) in resources.iter().enumerate() {
+        let (pos, size) = placed[i];
+        out.extend_from_slice(&type_id.to_le_bytes());
+        out.extend_from_slice(&group.to_le_bytes());
+        out.extend_from_slice(&((*instance >> 32) as u32).to_le_bytes());
+        out.extend_from_slice(&(*instance as u32).to_le_bytes());
+        out.extend_from_slice(&pos.to_le_bytes());
+        out.extend_from_slice(&size.to_le_bytes()); // no bit31: uncompressed
+        out.extend_from_slice(&size.to_le_bytes()); // mem_size = size
+        out.extend_from_slice(&0u16.to_le_bytes()); // compression: none
+        out.extend_from_slice(&1u16.to_le_bytes()); // committed
+    }
+    out
+}
+
+/// Merge packages in game load order (callers sort; later wins on TGI
+/// collision, mirroring what the game already does with the loose
+/// files). Every entry is decompressed on the way in — an entry we
+/// can't read aborts the merge rather than silently dropping content.
+pub fn merge_packages(paths: &[&Path]) -> Result<(Vec<u8>, MergeStats), DbpfError> {
+    let mut map: std::collections::BTreeMap<(u32, u32, u64), Vec<u8>> = Default::default();
+    let mut stats = MergeStats {
+        sources: paths.len(),
+        resources_in: 0,
+        resources_out: 0,
+        collisions: 0,
+    };
+    for path in paths {
+        let index = read_package_index(path)?;
+        let mut file = File::open(path)?;
+        for (key, entry) in index.keys.iter().zip(index.entries.iter()) {
+            let payload = read_entry_payload(&mut file, entry).ok_or_else(|| {
+                DbpfError::CorruptIndex(format!(
+                    "unreadable resource 0x{:08X} in {} — merge aborted, nothing written",
+                    key.type_id,
+                    path.display()
+                ))
+            })?;
+            stats.resources_in += 1;
+            let k = (key.type_id, key.group_id, key.instance);
+            if map.insert(k, payload).is_some() {
+                stats.collisions += 1;
+            }
+        }
+    }
+    stats.resources_out = map.len();
+    let resources: Vec<((u32, u32, u64), Vec<u8>)> = map.into_iter().collect();
+    let total: usize = resources.iter().map(|(_, p)| p.len()).sum();
+    if total as u64 + (resources.len() as u64 * 32) + 200 > u32::MAX as u64 {
+        return Err(DbpfError::CorruptIndex(
+            "merged package would exceed the 4 GB DBPF limit".to_string(),
+        ));
+    }
+    Ok((write_package(&resources), stats))
+}
+
 /// Undo EA's DST block-shuffle: a normal DDS header whose fourCC reads
 /// DST1/DST5, with block fields split into planar streams for better LZ.
 /// Stream order per the s4pi reference — DST1: [4B endpoints]×N then
@@ -958,6 +1046,59 @@ mod thumb_tests {
             _ => unreachable!(),
         }
         out
+    }
+
+    #[test]
+    fn merge_roundtrips_with_load_order_winners() {
+        // Three sources; pkg1 and pkg3 collide on (T,0,1) — pkg3 is later
+        // in load order and must win. pkg2's entry arrives zlib-compressed
+        // and must come out decompressed and byte-faithful.
+        let t = 0x1234_5678u32;
+        let a = build_package(&[(t, 0, b"payload-A-first", 15)]);
+        let raw = b"payload-B-compressed";
+        let z = zlib(raw);
+        let b = build_package(&[(0x2222_2222, 0x5A42, &z, raw.len() as u32)]);
+        let c = build_package(&[(t, 0, b"payload-C-wins!", 15)]);
+        let (da, pa) = write_tmp(&a);
+        let (db_, pb) = write_tmp(&b);
+        let (dc, pc) = write_tmp(&c);
+        let (bytes, stats) =
+            merge_packages(&[pa.as_path(), pb.as_path(), pc.as_path()]).unwrap();
+        assert_eq!(stats.sources, 3);
+        assert_eq!(stats.resources_in, 3);
+        assert_eq!(stats.resources_out, 2);
+        assert_eq!(stats.collisions, 1);
+        let (dm, pm) = write_tmp(&bytes);
+        let idx = read_package_index(&pm).unwrap();
+        assert_eq!(idx.keys.len(), 2);
+        let mut file = File::open(&pm).unwrap();
+        let mut found = std::collections::HashMap::new();
+        for (k, e) in idx.keys.iter().zip(idx.entries.iter()) {
+            found.insert(k.type_id, read_entry_payload(&mut file, e).unwrap());
+        }
+        assert_eq!(found[&t], b"payload-C-wins!".to_vec(), "later load order wins");
+        assert_eq!(found[&0x2222_2222], raw.to_vec(), "compressed source decompressed");
+        drop((da, db_, dc, dm));
+    }
+
+    #[test]
+    fn merged_packages_serve_thumbnails() {
+        let png = png_bytes();
+        let src = build_package(&[(0x3C1A_F1F2, 0, &png, png.len() as u32)]);
+        let (_d1, p1) = write_tmp(&src);
+        let (bytes, _) = merge_packages(&[p1.as_path()]).unwrap();
+        let (_d2, p2) = write_tmp(&bytes);
+        let (thumb, ext) = extract_thumbnail(&p2).unwrap().unwrap();
+        assert_eq!(ext, "png");
+        assert_eq!(thumb, png);
+    }
+
+    #[test]
+    fn empty_merge_writes_a_readable_shell() {
+        let bytes = write_package(&[]);
+        let (_d, p) = write_tmp(&bytes);
+        let idx = read_package_index(&p).unwrap();
+        assert!(idx.keys.is_empty());
     }
 
     #[test]

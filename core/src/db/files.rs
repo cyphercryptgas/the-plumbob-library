@@ -1208,3 +1208,13 @@ pub fn file_paths(
         .transpose()?;
     Ok(row)
 }
+
+/// A file the user removed through an app action (merge, etc.) — the
+/// same verdict a scan would reach, recorded immediately.
+pub fn mark_removed(conn: &Connection, id: i64) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE files SET missing = 1, status = 'missing' WHERE id = ?1",
+        params![id],
+    )?;
+    Ok(())
+}

@@ -67,6 +67,7 @@ fn main() {
             commands::creators_overview,
             commands::reverify_matches,
             commands::apply_update,
+            commands::merge_files,
             commands::list_quarantine,
             commands::list_backups,
             commands::list_backup_entries,

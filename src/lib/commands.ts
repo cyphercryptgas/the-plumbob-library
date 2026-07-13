@@ -248,3 +248,18 @@ export interface UpdateOutcome {
 
 export const applyUpdate = (fileId: number) =>
   call<UpdateOutcome>("apply_update", { fileId });
+
+export interface MergeStats {
+  sources: number;
+  resourcesIn: number;
+  resourcesOut: number;
+  collisions: number;
+}
+
+export interface MergeOutcome {
+  mergedName: string;
+  stats: MergeStats;
+}
+
+export const mergeFiles = (fileIds: number[]) =>
+  call<MergeOutcome>("merge_files", { fileIds });

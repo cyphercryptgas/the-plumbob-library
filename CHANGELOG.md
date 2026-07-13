@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.25.0 — The Merger
+
+* **Packages merge.** Select two or more in the Library and the new
+  Merge action combines them into one — the app's first DBPF *writer*,
+  built byte-for-byte to the shape our reader (and the game) accept.
+  Sources are taken in game load order (case-insensitive by path), so
+  when two packages carry the same resource, **the merged file keeps the
+  same winner the game already used**. Every entry is decompressed on
+  the way in; an entry the reader can't decode aborts the whole merge —
+  nothing partial is ever written. Proofs in the suite: a three-source
+  merge with a deliberate collision roundtrips through our own reader
+  with the load-order winner and byte-faithful payloads, and a merged
+  package serves thumbnails through the full pipeline.
+* **Reversible by construction.** Originals are snapshotted to Backups
+  through the journal before anything moves, then removed from Mods;
+  the merged file lands as `Merged_<timestamp>.package`. A merge is a
+  restore away from undone. (Two honest notes: entries are stored
+  uncompressed, so the merged file is bigger than the sum of its
+  compressed parts; and merging changes load-order context relative to
+  files *outside* the merge, as with every merge tool.)
+* **"Ready first" toggle** in Updates: sorts the updates the app can
+  apply for you above the ones that need Open Mod. On by default.
+
+
 ## 0.24.1 — Stale Dates & Closed Doors
 
 * **Updated files now stay updated.** The verdict "update available"

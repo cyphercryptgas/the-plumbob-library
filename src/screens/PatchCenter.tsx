@@ -30,6 +30,11 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
   const [reverifying, setReverifying] = useState(false);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [updateNote, setUpdateNote] = useState<string | null>(null);
+  const [readyFirst, setReadyFirst] = useState(true);
+
+  const actionable = (r: CurseStatusRow) =>
+    r.allowDistribution !== false &&
+    /\.(package|ts4script|zip)$/i.test(r.latestFileName ?? "");
   const [reverified, setReverified] = useState<ReverifyOutcome | null>(null);
   const [progress, setProgress] = useState<PatchProgressEvent | null>(null);
   const [summary, setSummary] = useState<PatchCheckSummary | null>(null);
@@ -120,7 +125,12 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
     }
   };
 
-  const updates = rows.filter((r) => r.updateAvailable);
+  const updates = rows.filter((r) => r.updateAvailable).slice().sort((a, b) =>
+    readyFirst
+      ? Number(actionable(b)) - Number(actionable(a)) ||
+        (a.modName ?? "").localeCompare(b.modName ?? "")
+      : 0
+  );
   const current = rows.filter((r) => r.modName && !r.updateAvailable);
   const unknown = rows.filter((r) => !r.modName);
   const checkedAt = rows.find((r) => r.checkedAt)?.checkedAt ?? null;
@@ -305,7 +315,22 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
 
       {updates.length > 0 ? (
         <Card finials>
-          <SectionTitle>Updates available</SectionTitle>
+          <div className="flex items-center justify-between gap-3">
+            <SectionTitle>Updates available</SectionTitle>
+            <button
+              type="button"
+              aria-pressed={readyFirst}
+              onClick={() => setReadyFirst((v) => !v)}
+              title="Sort updates the app can apply for you above the ones that need Open Mod"
+              className={`rounded-control border px-2.5 py-1 text-xs transition ${
+                readyFirst
+                  ? "border-transparent bg-accent font-medium text-ink"
+                  : "border-border-subtle text-ink-secondary hover:border-gold/60"
+              }`}
+            >
+              Ready first
+            </button>
+          </div>
           <div>
             {updates.map((r) => (
               <div
