@@ -1590,7 +1590,9 @@ pub fn thumbnail_census(
         .into_iter()
         .map(|(type_id, files)| CensusRow {
             type_hex: format!("0x{type_id:08X}"),
-            name: plumbob_core::dbpf::type_name(type_id).to_string(),
+            name: plumbob_core::dbpf::resource_type_name(type_id)
+                .unwrap_or("Unknown")
+                .to_string(),
             files,
         })
         .collect())
