@@ -586,6 +586,13 @@ export function Library(props: { initialSearch?: string }) {
                       {f.currentFilename}
                     </div>
                     <div className="flex flex-wrap gap-1">
+                      {f.creatorDisplay ? (
+                        <Pill tone="gold" title={`Creator: ${f.creatorDisplay}`}>
+                          <span className="max-w-[110px] truncate">
+                            {f.creatorDisplay}
+                          </span>
+                        </Pill>
+                      ) : null}
                       {f.casSubcategory && SUB_BADGE[f.casSubcategory] ? (
                         <Pill tone="sage">{SUB_BADGE[f.casSubcategory]}</Pill>
                       ) : f.category && CATEGORY_BADGE[f.category] ? (
@@ -686,6 +693,13 @@ export function Library(props: { initialSearch?: string }) {
                     </td>
                     <td className="px-3 py-2">
                       <span className="flex flex-wrap gap-1">
+                        {f.creatorDisplay ? (
+                          <Pill tone="gold" title={`Creator: ${f.creatorDisplay}`}>
+                            <span className="max-w-[140px] truncate">
+                              {f.creatorDisplay}
+                            </span>
+                          </Pill>
+                        ) : null}
                         {f.casSubcategory && SUB_BADGE[f.casSubcategory] ? (
                           <Pill tone="sage">{SUB_BADGE[f.casSubcategory]}</Pill>
                         ) : f.category && CATEGORY_BADGE[f.category] ? (

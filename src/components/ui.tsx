@@ -83,12 +83,14 @@ export function Button(props: {
   );
 }
 
-type Tone = "sage" | "blue" | "rose" | "neutral" | "warning" | "danger";
+type Tone = "sage"
+  | "gold" | "blue" | "rose" | "neutral" | "warning" | "danger";
 
 const pillTones: Record<Tone, string> = {
   sage: "bg-sage-soft text-sage-deep",
   blue: "bg-blue-soft text-muted-blue-deep",
   rose: "bg-blush-soft text-dusty-rose",
+  gold: "raised-pill bg-gold/15 text-[#7a5f2a]",
   neutral: "bg-soft text-ink-secondary",
   warning: "bg-blue-soft text-warning",
   danger: "bg-blush-soft text-danger",

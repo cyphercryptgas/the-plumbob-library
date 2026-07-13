@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.20.0 — Bylines Everywhere
+
+* **Every credited file in the Library wears its creator's full name** —
+  a gold identity pill leading the badge row on grid tiles and list rows
+  alike, with the complete display form on hover for long names.
+  Uncredited files stay clean rather than wearing an "Unknown" badge by
+  the thousand; attribution keeps improving with each Scan as frequency
+  promotion learns new prefixes.
+
+
 ## 0.19.0 — The Creators Section
 
 * **Your library, by byline.** A new Creators screen reads authorship
