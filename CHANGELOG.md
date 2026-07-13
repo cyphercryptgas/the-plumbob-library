@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.9.1 — Politeness Engineering
+
+* **The "rejected API key" wasn't.** CurseForge sits behind Cloudflare,
+  which answers request storms with 403 — the same status as a bad key,
+  and the radar's first big run (3,000+ searches, unpaced) summoned it.
+  401 and 403 now carry separate, honest messages; a block pauses the
+  check gracefully like a rate limit instead of hard-failing; and the
+  name tier paces itself (200 ms between searches) and handles at most
+  600 new terms per run. The cache carries the rest — nothing from the
+  blocked run was lost, and the block itself clears on its own, usually
+  within the hour.
+* **Date sorting means the file's date now.** An imported library is
+  "first seen" all at once, so sorting by it collapsed into A–Z order.
+  Sort and the date filter chips now key on each file's own
+  modification date — a decade of creator builds finally spreads out —
+  and the row is labeled "File date" to say what it means.
+
+
 ## 0.9.0 — The Name Radar
 
 * **Tier-2 matching, mandated by evidence.** The corpus probe proved

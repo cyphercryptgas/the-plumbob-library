@@ -392,12 +392,14 @@ fn filter_clause(filter: Option<&str>) -> Result<&'static str, DbError> {
         "cat_gameplay" => "category = 'gameplay'",
         "cat_scripts" => "category = 'scripts'",
         "cat_other" => "category = 'other'",
-        // first_seen_at is RFC 3339 ('T' separator); date('now') is plain
+        // File dates are RFC 3339 ('T' separator); date('now') is plain
         // YYYY-MM-DD — comparing on substr keeps both sides day-precision.
-        "date_7" => "substr(first_seen_at, 1, 10) >= date('now', '-7 days')",
-        "date_30" => "substr(first_seen_at, 1, 10) >= date('now', '-30 days')",
-        "date_90" => "substr(first_seen_at, 1, 10) >= date('now', '-90 days')",
-        "date_old" => "substr(first_seen_at, 1, 10) < date('now', '-90 days')",
+        // modified_at_fs is the file's own date (creator builds span years);
+        // first_seen_at only backstops the rare null.
+        "date_7" => "substr(COALESCE(modified_at_fs, first_seen_at), 1, 10) >= date('now', '-7 days')",
+        "date_30" => "substr(COALESCE(modified_at_fs, first_seen_at), 1, 10) >= date('now', '-30 days')",
+        "date_90" => "substr(COALESCE(modified_at_fs, first_seen_at), 1, 10) >= date('now', '-90 days')",
+        "date_old" => "substr(COALESCE(modified_at_fs, first_seen_at), 1, 10) < date('now', '-90 days')",
         "unreadable" => "parse_status IS NOT NULL AND parse_status != 'ok'",
         other => {
             return Err(DbError::Sqlite(rusqlite::Error::InvalidParameterName(
@@ -419,9 +421,15 @@ pub fn list_files(
 ) -> Result<Vec<FileRow>, DbError> {
     let clause = filter_clause(filter)?;
     // Sort keys are matched here, never interpolated from user text.
+    // "Date" means the file's own date: an imported library is "first seen"
+    // all at once, but modified_at_fs spans years of creator builds.
     let order = match sort.unwrap_or("name") {
-        "added_desc" => "first_seen_at DESC, relative_path COLLATE NOCASE",
-        "added_asc" => "first_seen_at ASC, relative_path COLLATE NOCASE",
+        "added_desc" => {
+            "COALESCE(modified_at_fs, first_seen_at) DESC, relative_path COLLATE NOCASE"
+        }
+        "added_asc" => {
+            "COALESCE(modified_at_fs, first_seen_at) ASC, relative_path COLLATE NOCASE"
+        }
         _ => "relative_path COLLATE NOCASE",
     };
     let sql = format!(

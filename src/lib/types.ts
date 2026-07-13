@@ -319,6 +319,7 @@ export interface PatchCheckSummary {
   corpusProbe: boolean | null;
   nameMatched: number;
   rateLimited: boolean;
+  remainingTerms: number;
   checkedAt: string;
 }
 

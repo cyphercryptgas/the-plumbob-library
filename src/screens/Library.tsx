@@ -242,10 +242,10 @@ export function Library(props: { initialSearch?: string }) {
         <div
           className="mt-2 flex flex-wrap items-center gap-1.5"
           role="group"
-          aria-label="Filter by when the file was added"
+          aria-label="Filter by file date"
         >
           <span className="mr-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#94875e]">
-            Added
+            File date
           </span>
           {DATE_FILTERS.map((f) => (
             <button

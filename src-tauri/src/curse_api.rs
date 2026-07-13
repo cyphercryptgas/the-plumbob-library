@@ -106,8 +106,16 @@ impl CurseClient {
 
     fn friendly(status: reqwest::StatusCode) -> String {
         match status.as_u16() {
-            401 | 403 => "CurseForge rejected the API key. Check it in \
-                          Settings → Connections."
+            401 => "CurseForge rejected the API key. Check it in Settings → \
+                    Connections."
+                .to_string(),
+            // Cloudflare answers request storms with 403 — it looks like a
+            // bad key and isn't. It clears on its own, usually within an
+            // hour, and all progress is cached.
+            403 => "CurseForge is blocking requests right now — this often \
+                    follows a very large run and clears on its own (usually \
+                    within the hour). Everything found so far is cached; try \
+                    again later."
                 .to_string(),
             429 => "CurseForge is rate-limiting requests — wait a minute and \
                     try again."

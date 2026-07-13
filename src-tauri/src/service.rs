@@ -1085,9 +1085,12 @@ pub struct PatchCheckSummary {
     pub corpus_probe: Option<bool>,
     /// Files matched approximately by name (subset of `matched`).
     pub name_matched: usize,
-    /// The name tier hit CurseForge's rate limit and paused; the lookup
-    /// cache keeps its progress, so running again continues.
+    /// The name tier hit CurseForge's rate limit or a temporary block and
+    /// paused; the lookup cache keeps its progress, so running again
+    /// continues.
     pub rate_limited: bool,
+    /// Terms not yet searched (per-run cap or a pause). Zero when done.
+    pub remaining_terms: usize,
     pub checked_at: String,
 }
 
@@ -1217,13 +1220,24 @@ pub fn check_curse_updates(
     let mut fresh_mods: std::collections::HashMap<i64, crate::curse_api::CurseMod> =
         std::collections::HashMap::new();
     let mut rate_limited = false;
-    let missing: Vec<String> = term_files
+    let mut missing: Vec<String> = term_files
         .keys()
         .filter(|t| !known.contains_key(*t))
         .cloned()
         .collect();
+    missing.sort();
+    // Politeness engineering, field-taught: Cloudflare answers request
+    // storms with 403s that outlive the run. Each check paces itself and
+    // handles at most this many new terms; the cache carries the rest.
+    const TERMS_PER_RUN: usize = 600;
+    let deferred = missing.len().saturating_sub(TERMS_PER_RUN);
+    missing.truncate(TERMS_PER_RUN);
     emit_patch(app, "Matching by name", 0, missing.len().max(1));
+    let mut searched = 0usize;
     for (i, term) in missing.iter().enumerate() {
+        if i > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
         match client.search_mods(game_id, term, 5) {
             Ok(candidates) => {
                 let best = candidates
@@ -1255,14 +1269,16 @@ pub fn check_curse_updates(
                     }
                 }
             }
-            Err(e) if e.contains("rate-limit") => {
+            Err(e) if e.contains("rate-limit") || e.contains("blocking requests") => {
                 rate_limited = true;
                 break;
             }
             Err(e) => return Err(e),
         }
+        searched += 1;
         emit_patch(app, "Matching by name", i + 1, missing.len());
     }
+    let remaining_terms = deferred + missing.len().saturating_sub(searched);
     let name_confidence: std::collections::HashMap<String, f64> = {
         let guard = lock_db(dbm)?;
         let mut stmt = guard
@@ -1412,6 +1428,7 @@ pub fn check_curse_updates(
         corpus_probe,
         name_matched,
         rate_limited,
+        remaining_terms,
         checked_at,
     })
 }

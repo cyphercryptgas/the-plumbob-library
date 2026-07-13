@@ -160,9 +160,16 @@ export function PatchCenter(props: { onNavigate: (route: Route) => void }) {
         ) : null}
         {summary && summary.rateLimited ? (
           <p className="mt-2 text-xs leading-relaxed text-warning">
-            CurseForge rate-limited the name search partway — everything found
-            so far is cached, so running Check again continues where it
-            stopped.
+            CurseForge paused the name search partway (rate limit or a
+            temporary block — the latter usually clears within the hour).
+            Everything found so far is cached; run Check again later to
+            continue.
+          </p>
+        ) : summary && summary.remainingTerms > 0 ? (
+          <p className="mt-2 text-xs leading-relaxed text-ink-muted">
+            {summary.remainingTerms.toLocaleString()} search terms remain —
+            each check handles a polite batch. Run Check again to continue;
+            everything already found is cached.
           </p>
         ) : null}
         {summary && summary.corpusProbe === false ? (

@@ -64,8 +64,12 @@ rather than guessed at. One search per unique term; a candidate is
 accepted when its name-plus-authors tokens cover ≥ 60% of the term with
 at least two shared tokens, and the stored confidence is shown wherever
 the match appears, always labeled **≈ name**. Every lookup, including
-misses, is cached in `curse_name_lookups`, making checks resumable
-across rate limits and cheap forever after. Because no specific
+misses, is cached in `curse_name_lookups`, making checks resumable and
+cheap forever after. The tier is deliberately polite — 200 ms between
+searches, at most 600 new terms per run — because Cloudflare answers
+request storms with 403s that masquerade as key rejections and outlive
+the run (field-taught); blocks and rate limits both pause the check
+with progress intact rather than failing it. Because no specific
 CurseForge file corresponds to a name match, "update available" means
 *their latest release postdates your file's mtime* — a stated
 heuristic, not a version comparison.
