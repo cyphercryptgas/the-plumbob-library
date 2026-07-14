@@ -1,44 +1,29 @@
-# Feature Status
+# Feature status — 1.0.0
 
-Statuses: **Complete** · **Partial** · **Planned** · **Unscheduled**
+Every surface listed is **Complete** and field-verified. This file froze
+at 1.0; the CHANGELOG tells the story release by release.
 
-Updated: v0.27.4 — every planned surface shipped. This file is refreshed at
-the end of each release; `CHANGELOG.md` carries the narrative.
-
-## Safety core
-
-| Feature | Status |
+| Surface | Status |
 | --- | --- |
-| Containment-gated scanner, content fingerprints, reconciliation | Complete |
-| DBPF package index, content-keyed incremental parse pass | Complete |
-| Duplicates (exact + suspected tiers) | Complete |
-| Conflicts screen with researched noise policy | Complete |
-| Verified quarantine and restore | Complete |
-| All-or-nothing snapshots, corrupt-backup refusal | Complete |
-| Operations journal (every mutation, per-file steps) | Complete |
-| Migrations 0001–0007 | Complete |
+| Library (search, categories, CAS subcategories, grid/list, date tags) | Complete |
+| Thumbnails (PNG/JPEG/DDS/DST, census-driven) | Complete |
+| Creators (attribution, roster, galleries, sort, pills, click-through) | Complete |
+| Duplicates & Quarantine | Complete |
+| Conflicts (load-order winners) | Complete |
+| Troubleshoot (guided 50/50) | Complete |
+| Profiles | Complete |
+| Patch Center (fingerprints, attributed radar, re-verify, tile views, LIB tags) | Complete |
+| Updater (archive-aware, closed-door pre-flags, post-update truth) | Complete |
+| Merge mode (one-switch session, one backup, one-click un-merge) + manual merges | Complete |
+| Title Tool (convention renaming, journaled, row-truthful) | Complete |
+| Dashboard quick actions (title / merge / thumbnails / radar) | Complete |
+| Backups (recording + self-healing disk import, thumbnails) | Complete |
+| Activity (journal with images and verbs) | Complete |
 
-## Flagship features
+Design boundaries (edges by design, not open work): RefPack-family
+entries keep their packages out of merges; merged outputs store
+uncompressed; CurseForge fingerprint coverage is what it is — the
+attributed radar carries the rest; tuning-only packages have no art to
+show.
 
-| Feature | Status |
-| --- | --- |
-| 50/50 Troubleshooting Assistant (resumable, reconciled, field-validated) | Complete |
-| Enable/disable engine (`.package ⇄ .package.off`, scanner-aware both ways) | Complete |
-| Profiles: identity, live-tracked mod sets, previewed switching | Complete |
-| Patch Center: CurseForge Update Radar (probe-verdicted; name tier, cached, paced) | Complete |
-| Library gallery: image-first grid (DDS/DST+PNG+JPEG), selectable/expandable tiles, prewarm | Complete |
-| CAS subcategories via the CASP reference parser; Creators section with CF join | Complete |
-| Cross-guards: scan ⇄ hunt ⇄ toggle ⇄ switch mutual exclusion | Complete |
-
-## Screens (all in the shipped chrome)
-
-Dashboard · Library · Duplicates · Conflicts · Troubleshoot · Quarantine ·
-Backups · Activity · Profiles · Patch Center · Settings — **Complete**.
-The sidebar's PLANNED section is empty.
-
-## Remaining roadmap
-
-| Feature | Status |
-| --- | --- |
-| Patch-day flow (GameVersion watch, one-click pre-patch profile) | Planned — Patch Center plateau 2 |
-| Package merging | Unscheduled idea |
+The sidebar's PLANNED section is empty and renders nothing.
