@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getThumbnails } from "../lib/commands";
 import {
@@ -159,6 +160,22 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
   const [quickNote, setQuickNote] = useState<string | null>(null);
   const [mergeMode, setMergeMode] = useState<boolean>(false);
   const [mergeLegacy, setMergeLegacy] = useState<boolean>(false);
+  const [mergeProg, setMergeProg] = useState<{
+    phase: string;
+    current: number;
+    total: number;
+    label: string;
+  } | null>(null);
+
+  useEffect(() => {
+    const un = listen<{ phase: string; current: number; total: number; label: string }>(
+      "merge://progress",
+      (e) => setMergeProg(e.payload)
+    );
+    return () => {
+      void un.then((f) => f());
+    };
+  }, []);
 
   useEffect(() => {
     mergeModeStatus()
@@ -224,6 +241,7 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
       reportError(String(e));
     } finally {
       setQuickBusy(null);
+      setMergeProg(null);
     }
   };
 
@@ -774,6 +792,39 @@ export function Dashboard(props: { onNavigate: (route: Route) => void }) {
                 disabled={quickBusy !== null}
               />
             </div>
+            {quickBusy === "merge" && mergeProg ? (
+              <div className="mt-3">
+                <div className="mb-1 flex justify-between text-[11px] text-ink-muted">
+                  <span className="truncate pr-2">
+                    {mergeProg.phase === "restore"
+                      ? "Restoring"
+                      : mergeProg.phase === "backup"
+                        ? "Backing up"
+                        : "Merging"}{" "}
+                    — {mergeProg.label}
+                  </span>
+                  {mergeProg.phase !== "backup" ? (
+                    <span className="shrink-0">
+                      {mergeProg.current.toLocaleString()}/
+                      {mergeProg.total.toLocaleString()}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-border-subtle">
+                  <div
+                    className={`h-full rounded-full bg-sage transition-all ${
+                      mergeProg.phase === "backup" ? "animate-pulse" : ""
+                    }`}
+                    style={{
+                      width:
+                        mergeProg.phase === "backup"
+                          ? "100%"
+                          : `${Math.min(100, Math.round((mergeProg.current / Math.max(1, mergeProg.total)) * 100))}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
             {quickNote ? (
               <p className="mt-3 text-xs text-ink-secondary">{quickNote}</p>
             ) : null}

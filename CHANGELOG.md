@@ -33,6 +33,9 @@ below tells the whole story, defect confessions included.
   lights green, and un-merge restores across all of those backups under
   one journaled operation, so an improper merge can be unwound and
   redone the new way.
+* **A progress bar tracks the whole ride** — per group while merging,
+  per batch of files while restoring — with the current label and a
+  running count under the quick actions.
 * Manual Library-selection merges are unchanged: small, deliberate,
   snapshot-per-merge.
 

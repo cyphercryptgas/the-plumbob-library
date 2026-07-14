@@ -723,25 +723,31 @@ pub fn merge_mode_status(state: State<'_, AppState>) -> UiResult<service::MergeM
 }
 
 #[tauri::command]
-pub async fn auto_merge_run(state: State<'_, AppState>) -> UiResult<service::MergeModeOutcome> {
+pub async fn auto_merge_run(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> UiResult<service::MergeModeOutcome> {
     if state.scan_in_progress.load(Ordering::SeqCst) {
         return Err("A scan is running. Let it finish first.".to_string());
     }
     let db = state.db.clone();
     let data_dir = state.data_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || service::auto_merge_run(&db, &data_dir))
+    tauri::async_runtime::spawn_blocking(move || service::auto_merge_run(&app, &db, &data_dir))
         .await
         .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub async fn un_merge_run(state: State<'_, AppState>) -> UiResult<service::UnMergeOutcome> {
+pub async fn un_merge_run(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> UiResult<service::UnMergeOutcome> {
     if state.scan_in_progress.load(Ordering::SeqCst) {
         return Err("A scan is running. Let it finish first.".to_string());
     }
     let db = state.db.clone();
     let data_dir = state.data_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || service::un_merge_run(&db, &data_dir))
+    tauri::async_runtime::spawn_blocking(move || service::un_merge_run(&app, &db, &data_dir))
         .await
         .map_err(|e| e.to_string())?
 }

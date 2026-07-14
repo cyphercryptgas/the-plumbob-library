@@ -2745,7 +2745,11 @@ pub struct MergeModeOutcome {
 /// Enter merge mode: ONE whole-run backup, ONE journaled operation whose
 /// steps are the groups, all outputs remembered in the session — so
 /// un-merge is one click and the history is one entry, not sixty.
-pub fn auto_merge_run(dbm: &Mutex<Database>, data_dir: &Path) -> UiResult<MergeModeOutcome> {
+pub fn auto_merge_run(
+    app: &AppHandle,
+    dbm: &Mutex<Database>,
+    data_dir: &Path,
+) -> UiResult<MergeModeOutcome> {
     ensure_game_closed()?;
     {
         let guard = lock_db(dbm)?;
@@ -2778,6 +2782,15 @@ pub fn auto_merge_run(dbm: &Mutex<Database>, data_dir: &Path) -> UiResult<MergeM
         .filter_map(|id| by_id.get(id))
         .map(|c| std::path::PathBuf::from(&c.relative_path))
         .collect();
+    let _ = app.emit(
+        "merge://progress",
+        serde_json::json!({
+            "phase": "backup",
+            "current": 0,
+            "total": rels.len(),
+            "label": format!("Taking the session backup — {} files", rels.len()),
+        }),
+    );
     let (snapshot_dir, manifest) = {
         let mut journal = db::ops::SqliteJournal::new(guard.conn());
         let result = ops::create_snapshot(
@@ -2807,6 +2820,15 @@ pub fn auto_merge_run(dbm: &Mutex<Database>, data_dir: &Path) -> UiResult<MergeM
     let mut files_merged = 0usize;
     let mut resources_total = 0usize;
     for (step, g) in plan.groups.iter().enumerate() {
+        let _ = app.emit(
+            "merge://progress",
+            serde_json::json!({
+                "phase": "merge",
+                "current": step + 1,
+                "total": plan.groups.len(),
+                "label": g.label,
+            }),
+        );
         let mut map: std::collections::BTreeMap<(u32, u32, u64), Vec<u8>> = Default::default();
         let mut merged_ids: Vec<(i64, String)> = Vec::new();
         let mut ordered: Vec<&_> = g
@@ -2922,11 +2944,15 @@ pub struct UnMergeOutcome {
 /// Leave merge mode: delete the session's outputs, restore the whole
 /// session backup under one journaled operation, deactivate. A Scan
 /// afterwards puts every row back the way it was.
-pub fn un_merge_run(dbm: &Mutex<Database>, data_dir: &Path) -> UiResult<UnMergeOutcome> {
+pub fn un_merge_run(
+    app: &AppHandle,
+    dbm: &Mutex<Database>,
+    data_dir: &Path,
+) -> UiResult<UnMergeOutcome> {
     ensure_game_closed()?;
     let guard = lock_db(dbm)?;
     let Some(session) = db::ops::active_merge_session(guard.conn()).map_err(err_str)? else {
-        return un_merge_legacy(&guard, data_dir);
+        return un_merge_legacy(app, &guard, data_dir);
     };
     let session = session;
     let roots = resolve_roots(&guard, data_dir)?;
@@ -2950,29 +2976,98 @@ pub fn un_merge_run(dbm: &Mutex<Database>, data_dir: &Path) -> UiResult<UnMergeO
             outputs_removed += 1;
         }
     }
-    let (restored, skipped) = {
-        let mut journal = db::ops::SqliteJournal::new(guard.conn());
-        let r = plumbob_core::ops::restore_snapshot_all(
-            &roots.mods,
-            &PathBuf::from(&backup.root_path),
-            &snap_entries,
-            &mut journal,
-        );
-        journal.finish().map_err(err_str)?;
-        r
-    };
+    let (restored, skipped) = restore_entries_journaled(
+        app,
+        &guard,
+        &roots,
+        &[(PathBuf::from(&backup.root_path), snap_entries)],
+    )?;
     db::ops::deactivate_merge_session(guard.conn(), session.id).map_err(err_str)?;
     Ok(UnMergeOutcome {
         restored,
-        skipped: skipped.len(),
+        skipped,
         outputs_removed,
     })
+}
+
+/// The shared restore loop both un-merge paths use: one journaled
+/// operation across any number of snapshot directories, progress
+/// emitted every 25 entries.
+fn restore_entries_journaled(
+    app: &AppHandle,
+    guard: &std::sync::MutexGuard<'_, Database>,
+    roots: &Roots,
+    batches: &[(PathBuf, Vec<plumbob_core::ops::SnapshotEntry>)],
+) -> UiResult<(usize, usize)> {
+    let total: usize = batches.iter().map(|(_, e)| e.len()).sum();
+    let op_uid = plumbob_core::ops::new_operation_id();
+    let mut journal = db::ops::SqliteJournal::new(guard.conn());
+    journal.record(plumbob_core::ops::JournalEvent::OperationStarted {
+        operation_id: op_uid.clone(),
+        kind: "restore_from_snapshot".to_string(),
+        total_steps: total,
+    });
+    let mut restored = 0usize;
+    let mut skipped = 0usize;
+    let mut step = 0usize;
+    for (dir, entries) in batches {
+        for e in entries {
+            if step % 25 == 0 {
+                let _ = app.emit(
+                    "merge://progress",
+                    serde_json::json!({
+                        "phase": "restore",
+                        "current": step + 1,
+                        "total": total,
+                        "label": e
+                            .relative_path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default(),
+                    }),
+                );
+            }
+            match plumbob_core::ops::restore_entry_verified(&roots.mods, dir, e, false) {
+                Ok(dest) => {
+                    journal.record(plumbob_core::ops::JournalEvent::StepSucceeded {
+                        operation_id: op_uid.clone(),
+                        step,
+                        action: "restore".to_string(),
+                        source: dir.join(&e.relative_path),
+                        destination: Some(dest),
+                        sha256: Some(e.sha256.clone()),
+                    });
+                    restored += 1;
+                }
+                Err(err) => {
+                    journal.record(plumbob_core::ops::JournalEvent::StepFailed {
+                        operation_id: op_uid.clone(),
+                        step,
+                        action: "restore".to_string(),
+                        source: dir.join(&e.relative_path),
+                        message: err.to_string(),
+                    });
+                    skipped += 1;
+                }
+            }
+            step += 1;
+        }
+    }
+    journal.record(plumbob_core::ops::JournalEvent::OperationFinished {
+        operation_id: op_uid,
+        status: if skipped == 0 { "completed" } else { "partial" }.to_string(),
+        succeeded: restored,
+        failed: skipped,
+    });
+    journal.finish().map_err(err_str)?;
+    Ok((restored, skipped))
 }
 
 /// Un-merge for libraries merged before sessions existed: remove every
 /// Merged_<Tag>_<stamp> output, then restore from ALL pre-session merge
 /// backups under one journaled operation.
 fn un_merge_legacy(
+    app: &AppHandle,
     guard: &std::sync::MutexGuard<'_, Database>,
     data_dir: &Path,
 ) -> UiResult<UnMergeOutcome> {
@@ -2993,59 +3088,20 @@ fn un_merge_legacy(
         }
         db::files::mark_removed(guard.conn(), *id).map_err(err_str)?;
     }
-    let op_uid = plumbob_core::ops::new_operation_id();
-    let mut journal = db::ops::SqliteJournal::new(guard.conn());
-    let total: usize = backups.len();
-    journal.record(plumbob_core::ops::JournalEvent::OperationStarted {
-        operation_id: op_uid.clone(),
-        kind: "restore_from_snapshot".to_string(),
-        total_steps: total,
-    });
-    let mut restored = 0usize;
-    let mut skipped = 0usize;
-    let mut step = 0usize;
+    let mut batches: Vec<(PathBuf, Vec<plumbob_core::ops::SnapshotEntry>)> = Vec::new();
     for b in &backups {
         let entries = db::ops::backup_entries(guard.conn(), b.id).map_err(err_str)?;
-        let dir = PathBuf::from(&b.root_path);
-        for e in &entries {
-            let snap = plumbob_core::ops::SnapshotEntry {
+        let snaps = entries
+            .iter()
+            .map(|e| plumbob_core::ops::SnapshotEntry {
                 relative_path: PathBuf::from(&e.source_path),
                 sha256: e.sha256.clone(),
                 size_bytes: e.size_bytes as u64,
-            };
-            match plumbob_core::ops::restore_entry_verified(&roots.mods, &dir, &snap, false) {
-                Ok(dest) => {
-                    journal.record(plumbob_core::ops::JournalEvent::StepSucceeded {
-                        operation_id: op_uid.clone(),
-                        step,
-                        action: "restore".to_string(),
-                        source: dir.join(&e.source_path),
-                        destination: Some(dest),
-                        sha256: Some(e.sha256.clone()),
-                    });
-                    restored += 1;
-                }
-                Err(err) => {
-                    journal.record(plumbob_core::ops::JournalEvent::StepFailed {
-                        operation_id: op_uid.clone(),
-                        step,
-                        action: "restore".to_string(),
-                        source: dir.join(&e.source_path),
-                        message: err.to_string(),
-                    });
-                    skipped += 1;
-                }
-            }
-            step += 1;
-        }
+            })
+            .collect();
+        batches.push((PathBuf::from(&b.root_path), snaps));
     }
-    journal.record(plumbob_core::ops::JournalEvent::OperationFinished {
-        operation_id: op_uid,
-        status: if skipped == 0 { "completed" } else { "partial" }.to_string(),
-        succeeded: restored,
-        failed: skipped,
-    });
-    journal.finish().map_err(err_str)?;
+    let (restored, skipped) = restore_entries_journaled(app, guard, &roots, &batches)?;
     Ok(UnMergeOutcome {
         restored,
         skipped,
